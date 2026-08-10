@@ -39,6 +39,25 @@ Related work: [Learning Graph Cellular Automata](https://arxiv.org/abs/2110.1423
 [Mesh Neural CA](https://meshnca.github.io/) (2023),
 [E(n)-equivariant GNCA](https://arxiv.org/abs/2301.10497) (2023).
 
+## Web demo (browser-only, no server)
+
+After training, export the weights to JSON and open the demo:
+
+```sh
+uv run python export_web.py          # checkpoint.pt -> web/bundle.js
+open web/index.html                  # (or double-click it)
+```
+
+The entire CA forward pass runs in vanilla JavaScript — no PyTorch, no
+server, no build step. You get a canvas visualization with:
+- **drag to damage** cells, watch them regenerate
+- **reseed** / **pause** / **kill everything** buttons
+- speed and brush-radius sliders
+- a ghost target overlay and live loss / alive-cell stats
+
+The JS forward pass is verified numerically identical to the PyTorch model
+(max abs error 4.8e-7).
+
 ## Run it (Apple Silicon, uses MPS)
 
 ```sh
