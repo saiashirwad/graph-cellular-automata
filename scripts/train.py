@@ -19,6 +19,7 @@ import torch.nn.functional as F
 from gnca import (
     GraphNCA,
     alive_mask,
+    load_rule,
     knn_graph,
     random_geometric_graph,
     seed_state,
@@ -55,6 +56,11 @@ p.add_argument("--graph", choices=["rgg", "ws", "auto"], default="auto",
                     "auto: point-cloud k-NN for mesh targets, else rgg")
 p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
 p.add_argument("--lr", type=float, default=5e-4)
+p.add_argument("--init-from", default="",
+               help="checkpoint to warm-start from. If the saved first layer is "
+                    "narrower than the model's (e.g. a pre-degree-feature percept), "
+                    "pad its input columns with zeros: the loaded rule is then "
+                    "functionally identical, and fine-tuning learns the new feature.")
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
 p.add_argument("--run", default="",
                help="experiment name for the ablation ladder (e.g. baseline, deg, "
@@ -121,6 +127,10 @@ if not args.animate:
     edges = edges.to(device)
 
     model = GraphNCA(channels=args.channels).to(device)
+    if args.init_from:
+        sd = torch.load(args.init_from, weights_only=False)["model"]
+        pad = load_rule(model, sd)
+        print(f"warm-started from {args.init_from} (padded {pad} input cols)")
     opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
     # ------------------------------------------------------------ pool -----
@@ -274,7 +284,7 @@ else:
     center = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
 
 model = GraphNCA(channels=channels).to(device)
-model.load_state_dict(ckpt["model"])
+load_rule(model, ckpt["model"])
 print(f"animate {CKPT}: {dim}-d, {N} nodes, seed={center}")
 
 

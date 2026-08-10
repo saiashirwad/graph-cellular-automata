@@ -7,7 +7,8 @@ class GraphNCA(nn.Module):
     """One shared update rule applied to every node, Distill-NCA style.
 
     Perception (message passing): each node sees
-        [ own state, mean of neighbor states, mean of (neighbor - own) ]
+        [ own state, mean of neighbor states, mean of (neighbor - own), log(1 + deg) ]
+    The degree scalar restores the neighbor COUNT that mean aggregation erases.
     Update: tiny MLP -> residual increment, applied stochastically.
     """
 
@@ -15,7 +16,7 @@ class GraphNCA(nn.Module):
         super().__init__()
         self.channels = channels
         self.net = nn.Sequential(
-            nn.Linear(3 * channels, hidden), nn.ReLU(),
+            nn.Linear(3 * channels + 1, hidden), nn.ReLU(),
             nn.Linear(hidden, channels, bias=False),
         )
         # zero-init the last layer: initial rule is the identity
@@ -31,12 +32,29 @@ class GraphNCA(nn.Module):
         mean_n = mean_n / deg.clamp(min=1)
         mean_diff = torch.zeros_like(x).index_add_(0, dst, x[src] - x[dst]) / deg.clamp(min=1)
 
-        z = torch.cat([x, mean_n, mean_diff], dim=-1)
+        # log1p(deg) LAST: neighbor count, which mean aggregation provably
+        # erases (issue #17). Appended last so warm-start zero-padding of the
+        # first layer stays a simple column pad.
+        z = torch.cat([x, mean_n, mean_diff, torch.log1p(deg)], dim=-1)
         dx = self.net(z)
 
         # stochastic per-node update (classic NCA trick for async robustness)
         mask = (torch.rand(n, 1, device=x.device) < update_rate).to(x.dtype)
         return x + dx * mask
+
+
+def load_rule(model, sd):
+    """Load a rule state dict, zero-padding the first layer's input columns if
+    the checkpoint's percept is narrower (pre-#17 checkpoints lack the degree
+    feature). Zero columns => the loaded rule is functionally identical.
+    Returns the number of columns padded."""
+    w = "net.0.weight"
+    pad = model.net[0].weight.shape[1] - sd[w].shape[1]
+    if pad > 0:
+        zpad = torch.zeros(sd[w].shape[0], pad, device=sd[w].device)
+        sd[w] = torch.cat([sd[w], zpad], dim=1)
+    model.load_state_dict(sd)
+    return pad
 
 
 def alive_mask(x, edge_index, n_nodes, threshold=0.1):
