@@ -1,14 +1,21 @@
 """Damage/regeneration test: grow the heart, slice it in half, watch it heal.
 
-    uv run python damage.py            # uses checkpoint.pt, writes damage.gif
+    uv run python damage.py                          # checkpoint.pt -> damage.gif
+    uv run python damage.py checkpoint_dmg.pt -o damage_dmg.gif
 """
+import argparse
 import numpy as np
 import torch
 
 from gnca import GraphNCA, alive_mask, seed_state
 
+p = argparse.ArgumentParser()
+p.add_argument("checkpoint", nargs="?", default="checkpoint.pt")
+p.add_argument("-o", "--out", default="damage.gif")
+args = p.parse_args()
+
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load("checkpoint.pt", weights_only=False)
+ckpt = torch.load(args.checkpoint, weights_only=False)
 pos, edges = ckpt["pos"], ckpt["edges"].to(device)
 N = pos.shape[0]
 
@@ -53,5 +60,5 @@ def draw(i):
         ax.axhspan(0.42, 0.58, color="red", alpha=0.06)
 
 anim = FuncAnimation(fig, draw, frames=len(frames), interval=60)
-anim.save("damage.gif", writer=PillowWriter(fps=16))
-print(f"saved damage.gif (slice at frame {cut_at})")
+anim.save(args.out, writer=PillowWriter(fps=16))
+print(f"saved {args.out} (slice at frame {cut_at})")

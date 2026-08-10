@@ -923,12 +923,16 @@ setStory("A living graph: 1024 cells, one learned rule. Poke it.");
 document.querySelectorAll("details").forEach(d =>
   d.addEventListener("toggle", () => { renderWeights(); drawTrace(); }));
 
-// model picker
+// model picker. "healer" is the same heart target under a rule trained on
+// damaged patterns; flip between it and "heart" to see one heal and one stall
+const MODELS = { heart: BUNDLE, ring: BUNDLE_WS };
+if (typeof BUNDLE_DMG !== "undefined") MODELS.healer = BUNDLE_DMG;
+
 document.querySelectorAll("#models button").forEach(btn => {
   btn.onclick = () => {
     document.querySelectorAll("#models button").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    loadBundle(btn.dataset.model === "ring" ? BUNDLE_WS : BUNDLE);
+    loadBundle(MODELS[btn.dataset.model] || BUNDLE);
   };
 });
 
