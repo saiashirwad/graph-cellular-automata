@@ -13,3 +13,5 @@ nohup.out
 
 # macOS
 .DS_Store
+
+# web demo bundle is generated from checkpoints

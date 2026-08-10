@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Graph Neural Cellular Automata</title>
+<style>
+  :root { --bg:#0e0e12; --panel:#1a1a22; --txt:#d8d8e0; --accent:#6cf; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { background:var(--bg); color:var(--txt);
+         font:14px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
+         display:flex; height:100vh; }
+  #stage { flex:1; display:flex; align-items:center; justify-content:center; }
+  canvas { background:#000; border-radius:8px; cursor:crosshair; max-width:96%; max-height:96%; }
+  #panel { width:260px; padding:18px; background:var(--panel); display:flex;
+           flex-direction:column; gap:14px; overflow-y:auto; }
+  h1 { font-size:16px; color:var(--accent); }
+  .hint { font-size:12px; color:#888; }
+  button { background:#2a2a36; color:var(--txt); border:1px solid #3a3a48;
+           border-radius:6px; padding:8px; cursor:pointer; font-size:13px; }
+  button:hover { background:#34343f; }
+  .row { display:flex; gap:8px; }
+  .row button { flex:1; }
+  label { font-size:12px; color:#9a9aa8; display:block; margin-bottom:4px; }
+  input[type=range] { width:100%; }
+  #stats { font-size:12px; color:#9a9aa8; font-variant-numeric:tabular-nums; }
+  #stats b { color:var(--accent); }
+  .toggle { display:flex; align-items:center; gap:6px; font-size:12px; }
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="c" width="600" height="600"></canvas></div>
+<div id="panel">
+  <h1>Graph NCA</h1>
+  <p class="hint">Each node runs one shared learned rule, talking only to its
+     graph neighbors. Drag to damage; it regenerates.</p>
+  <div class="row">
+    <button id="reset">↺ Reseed</button>
+    <button id="pause">⏸ Pause</button>
+  </div>
+  <button id="killall">Kill everything</button>
+  <div>
+    <label>Speed: steps/frame <span id="spdV">2</span></label>
+    <input type="range" id="spd" min="1" max="8" value="2">
+  </div>
+  <div>
+    <label>Brush radius <span id="brV">0.08</span></label>
+    <input type="range" id="br" min="2" max="40" value="8">
+  </div>
+  <div class="toggle">
+    <input type="checkbox" id="ghost" checked>
+    <label for="ghost" style="margin:0">Show target (ghost)</label>
+  </div>
+  <div id="stats"></div>
+  <p class="hint">t = CA steps · alive = % living cells · loss = vs target</p>
+</div>
+<script src="bundle.js"></script>
+<script src="demo.js"></script>
+</body>
+</html>
