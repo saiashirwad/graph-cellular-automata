@@ -11,7 +11,8 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-from gnca import GraphNCA, random_geometric_graph, heart_target, alive_mask, seed_state
+from gnca import (GraphNCA, random_geometric_graph, watts_strogatz_graph,
+                  heart_target, ring_target, alive_mask, seed_state)
 
 p = argparse.ArgumentParser()
 p.add_argument("--nodes", type=int, default=1024)
@@ -20,17 +21,31 @@ p.add_argument("--channels", type=int, default=16)
 p.add_argument("--steps", type=int, default=8000)
 p.add_argument("--pool", type=int, default=256, help="sample pool size")
 p.add_argument("--batch", type=int, default=8)
+p.add_argument("--graph", choices=["rgg", "ws"], default="rgg",
+               help="rgg: random geometric graph + heart target; "
+                    "ws: Watts-Strogatz small-world ring + rainbow target")
+p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
 args = p.parse_args()
+
+suffix = "" if args.graph == "rgg" else "_ws"
+CKPT, GIF, TARGET_PNG = f"checkpoint{suffix}.pt", f"growth{suffix}.gif", f"target{suffix}.png"
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 torch.manual_seed(0)
 
 # ------------------------------------------------------- graph + target ----
-pos, edges = random_geometric_graph(args.nodes, k=args.k)
+if args.graph == "ws":
+    pos, edges = watts_strogatz_graph(args.nodes, k=args.k, beta=args.beta)
+    target_np = ring_target(pos)
+    seed_at = np.array([1.0, 0.5])                               # node 0 on the ring
+else:
+    pos, edges = random_geometric_graph(args.nodes, k=args.k)
+    target_np = heart_target(pos)
+    seed_at = np.array([0.5, 0.45])                              # heart center
 N = pos.shape[0]
-target = torch.from_numpy(heart_target(pos)).to(device)          # (N, 4)
-center = int(np.argmin(((pos - [0.5, 0.45]) ** 2).sum(1)))       # heart center
+target = torch.from_numpy(target_np).to(device)                  # (N, 4)
+center = int(np.argmin(((pos - seed_at) ** 2).sum(1)))           # seed node
 
 # batched edges: replicate the graph args.batch times with node-index offsets
 offsets = torch.arange(args.batch, dtype=torch.int64)[:, None] * N
@@ -78,11 +93,11 @@ if not args.animate:
             print(f"step {step:6d}  loss {loss.item():.6f}")
         if step % 2000 == 0:
             torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                        "edges": edges.cpu(), "channels": args.channels}, "checkpoint.pt")
+                        "edges": edges.cpu(), "channels": args.channels}, CKPT)
 
     torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                "edges": edges.cpu(), "channels": args.channels}, "checkpoint.pt")
-    print("saved checkpoint.pt")
+                "edges": edges.cpu(), "channels": args.channels}, CKPT)
+    print(f"saved {CKPT}")
 
 # ------------------------------------------------------------ visualize ----
 import os
@@ -92,7 +107,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-ckpt = torch.load("checkpoint.pt", weights_only=False)
+ckpt = torch.load(CKPT, weights_only=False)
 model.load_state_dict(ckpt["model"])
 pos, tgt = ckpt["pos"], ckpt["target"].numpy()
 
@@ -114,7 +129,7 @@ with torch.no_grad():
 
 anim = FuncAnimation(fig, lambda i: draw(ax, frames[i], f"graph NCA, t={i}"),
                      frames=len(frames), interval=60)
-anim.save("growth.gif", writer=PillowWriter(fps=16))
+anim.save(GIF, writer=PillowWriter(fps=16))
 draw(ax, tgt, "target")
-plt.savefig("target.png")
-print("saved growth.gif and target.png")
+plt.savefig(TARGET_PNG)
+print(f"saved {GIF} and {TARGET_PNG}")

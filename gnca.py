@@ -37,6 +37,36 @@ def random_geometric_graph(n_nodes=1024, k=8, seed=0):
     return pos, torch.from_numpy(edges.astype(np.int64))
 
 
+def watts_strogatz_graph(n_nodes=1024, k=8, beta=0.05, seed=0):
+    """Watts-Strogatz small-world graph: ring lattice + rewired shortcuts.
+
+    Nodes live on a circle (positions = the ring itself). Growth spreads
+    locally around the ring and occasionally jumps through a shortcut edge.
+
+    Returns:
+        pos:        (N, 2) float32 positions on the unit circle, mapped to [0,1]^2
+        edge_index: (2, E) long tensor, edges in both directions
+    """
+    rng = np.random.default_rng(seed)
+    assert k % 2 == 0
+    edges = set()
+    for i in range(n_nodes):
+        for d in range(1, k // 2 + 1):
+            j = (i + d) % n_nodes
+            # rewire this edge with probability beta
+            if rng.random() < beta:
+                candidates = np.setdiff1d(np.arange(n_nodes), [i])
+                j = int(rng.choice(candidates))
+            edges.add((min(i, j), max(i, j)))
+    e = np.array(sorted(edges)).T
+    e = np.concatenate([e, e[::-1]], axis=1)                # bidirectional
+
+    theta = np.arange(n_nodes) / n_nodes * 2 * np.pi
+    pos = np.stack([np.cos(theta), np.sin(theta)], axis=1).astype(np.float32)
+    pos = (pos + 1.0) / 2.0                                 # -> [0, 1]^2
+    return pos, torch.from_numpy(e.astype(np.int64))
+
+
 # --------------------------------------------------------------- target ----
 
 def heart_target(pos):
@@ -57,6 +87,29 @@ def heart_target(pos):
     ], axis=-1)
     rgba = np.concatenate([rgb, np.ones_like(r[..., None])], axis=-1)
     rgba[~inside] = 0.0                                     # outside: empty
+    return rgba.astype(np.float32)
+
+
+def ring_target(pos):
+    """Rainbow-by-angle on the ring graph; alpha=1 everywhere.
+
+    Pairs with watts_strogatz_graph: the CA must grow a full color wheel
+    around the ring from one seed, jumping through shortcut edges.
+    """
+    theta = np.arctan2(pos[:, 1] - 0.5, pos[:, 0] - 0.5)    # -pi..pi
+    h = (theta + np.pi) / (2 * np.pi)                       # 0..1 hue
+    # cheap HSV->RGB with s=v=1
+    i = (h * 6).astype(int) % 6
+    f = h * 6 - np.floor(h * 6)
+    q, t = 1 - f, f
+    one, zero = np.ones_like(h), np.zeros_like(h)
+    palette = np.stack([  # (N, 6 hues, 3 channels)
+        np.stack([one, t, zero], -1), np.stack([q, one, zero], -1),
+        np.stack([zero, one, t], -1), np.stack([zero, q, one], -1),
+        np.stack([t, zero, one], -1), np.stack([one, zero, q], -1),
+    ], axis=1)
+    rgb = np.take_along_axis(palette, i[:, None, None], axis=1)[:, 0, :]
+    rgba = np.concatenate([rgb, np.ones((*h.shape, 1), np.float32)], axis=-1)
     return rgba.astype(np.float32)
 
 
