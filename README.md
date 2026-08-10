@@ -50,10 +50,21 @@ open web/index.html                  # (or double-click it)
 
 The entire CA forward pass runs in vanilla JavaScript — no PyTorch, no
 server, no build step. You get a canvas visualization with:
-- **drag to damage** cells, watch them regenerate
-- **reseed** / **pause** / **kill everything** buttons
-- speed and brush-radius sliders
-- a ghost target overlay and live loss / alive-cell stats
+- **drag to damage** cells (with a live brush cursor + ripple), watch them regenerate
+- **reseed** / **pause** / **clear** buttons (`R` / `Space` / `K`)
+- **view modes** (`V`): visible RGB, update activity (where the rule is
+  firing), a PCA projection of the hidden channels (the learned "morphogen
+  field"), the alpha channel, and each of the 12 hidden channels
+- **topological damage**: cut all edges across the middle, drop 20% at
+  random (`E` to undo), and watch the dynamics adapt to the new graph
+- **layouts** (`L`): trained 2-d positions, a 3-d spectral embedding of the
+  bare topology (drag to orbit), or a live PCA of hidden states that
+  clusters nodes by internal chemistry
+- **hover a node** to see exactly which neighbors it listens to
+- a strip chart of the **seed node's 16 channels over time**, and
+  **heatmaps of the rule's weights** (W1 / W2)
+- speed and brush-radius sliders; toggles for the ghost target, graph edges, glow
+- live step / alive / loss stats and a loss sparkline
 
 The JS forward pass is verified numerically identical to the PyTorch model
 (max abs error 4.8e-7).

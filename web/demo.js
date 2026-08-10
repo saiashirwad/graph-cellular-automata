@@ -224,7 +224,7 @@ function seed() {
   for (let c = AIDX; c < C; c++) x[SEED * C + c] = 1;
   t = 0;
   traceHist.length = 0;
-  if (dispPos) ripples.push({ x: dispPos[SEED*2], y: dispPos[SEED*2+1], t0: performance.now(), col: "125,211,252" });
+  if (dispPos) ripples.push({ x: dispPos[SEED*2], y: dispPos[SEED*2+1], t0: performance.now(), col: "87,217,160" });
 }
 
 // ---- one CA step (numerically identical to the PyTorch model) ----
@@ -302,7 +302,7 @@ function draw(now) {
   ctx.clearRect(0, 0, W, W);
   if (showEdges) {
     ctx.lineWidth = Math.max(1, 0.5 * DPR);
-    ctx.strokeStyle = "rgba(150,165,220,0.06)";
+    ctx.strokeStyle = "rgba(180,200,190,0.08)";
     ctx.beginPath();
     for (let i = 0; i < N; i++)
       for (let k = off[i]; k < off[i+1]; k++) {
@@ -319,7 +319,7 @@ function draw(now) {
     for (let i = 0; i < N; i++) {
       const a = TGT[i*4 + 3];
       if (a < 0.05) continue;
-      ctx.fillStyle = `rgba(${(TGT[i*4]*255)|0},${(TGT[i*4+1]*255)|0},${(TGT[i*4+2]*255)|0},0.10)`;
+      ctx.fillStyle = `rgba(${(TGT[i*4]*255)|0},${(TGT[i*4+1]*255)|0},${(TGT[i*4+2]*255)|0},0.14)`;
       ctx.beginPath();
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), 2.4 * DPR, 0, 6.2832);
       ctx.fill();
@@ -336,7 +336,7 @@ function draw(now) {
         const R = (cl(x[i*C])*255)|0, G = (cl(x[i*C+1])*255)|0, B = (cl(x[i*C+2])*255)|0;
         const g = ctx.createRadialGradient(px(dispPos[i*2]), py(dispPos[i*2+1]), 0,
                                            px(dispPos[i*2]), py(dispPos[i*2+1]), rHalo);
-        g.addColorStop(0, `rgba(${R},${G},${B},${(0.35*cl(a)).toFixed(3)})`);
+        g.addColorStop(0, `rgba(${R},${G},${B},${(0.22*cl(a)).toFixed(3)})`);
         g.addColorStop(1, `rgba(${R},${G},${B},0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
@@ -361,8 +361,8 @@ function draw(now) {
     for (let i = 0; i < N; i++) {
       const v = cl(Math.sqrt(act[i] / scale));
       if (v < 0.02 && x[i * C + AIDX] < 0.05) continue;
-      const R = 255 * cl(1.7 * v), G = 255 * cl(1.2 * v - 0.15), B = 255 * cl(2 * v - 1);
-      ctx.fillStyle = `rgba(${R|0},${G|0},${B|0},${cl(0.15 + 0.85 * v).toFixed(3)})`;
+      const R = 90 + 165 * v, G = 55 + 120 * v, B = 35 + 45 * v;   // ember: dim coal -> hot amber
+      ctx.fillStyle = `rgba(${R|0},${G|0},${B|0},${cl(0.10 + 0.90 * v).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), rCore * (0.5 + 0.7 * cl(v)), 0, 6.2832);
       ctx.fill();
@@ -388,7 +388,7 @@ function draw(now) {
         const B = (cl(0.5 + p2 * 2) * 255) | 0;
         const g = ctx.createRadialGradient(px(dispPos[i*2]), py(dispPos[i*2+1]), 0,
                                            px(dispPos[i*2]), py(dispPos[i*2+1]), rHalo);
-        g.addColorStop(0, `rgba(${R},${G},${B},${(0.35*cl(a)).toFixed(3)})`);
+        g.addColorStop(0, `rgba(${R},${G},${B},${(0.22*cl(a)).toFixed(3)})`);
         g.addColorStop(1, `rgba(${R},${G},${B},0)`);
         ctx.fillStyle = g;
         ctx.beginPath();
@@ -411,6 +411,9 @@ function draw(now) {
       ctx.beginPath();
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), rCore * (0.6 + 0.4 * cl(a)) * (1 - 0.25 * dispD[i]), 0, 6.2832);
       ctx.fill();
+      ctx.lineWidth = 0.75 * DPR;
+      ctx.strokeStyle = "rgba(221,229,224,0.28)";
+      ctx.stroke();
     }
   } else {
     // single state channel, diverging: blue = negative, amber = positive
@@ -420,12 +423,12 @@ function draw(now) {
     for (let i = 0; i < N; i++) {
       if (x[i * C + AIDX] < 0.05) continue;
       const X = px(dispPos[i*2]), Y = py(dispPos[i*2+1]);
-      ctx.fillStyle = "rgba(255,255,255,0.10)";
+      ctx.fillStyle = "rgba(221,229,224,0.10)";
       ctx.beginPath(); ctx.arc(X, Y, 1.5 * DPR, 0, 6.2832); ctx.fill();
       const v = x[i*C + c0] / s;
       const a = cl(Math.abs(v));
       if (a < 0.03) continue;
-      ctx.fillStyle = v > 0 ? `rgba(247,178,73,${a.toFixed(3)})` : `rgba(101,157,247,${a.toFixed(3)})`;
+      ctx.fillStyle = v > 0 ? `rgba(255,154,92,${a.toFixed(3)})` : `rgba(87,217,160,${a.toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(X, Y, rCore * (0.5 + 0.5 * a), 0, 6.2832);
       ctx.fill();
@@ -435,6 +438,7 @@ function draw(now) {
   drawRipples(now);
 
   // hover: show who the nearest node listens to
+  let hovered = -1;
   if (ptr && !drawing) {
     let hi = -1, hd = 0.035 * 0.035;
     for (let i = 0; i < N; i++) {
@@ -444,7 +448,7 @@ function draw(now) {
     }
     if (hi >= 0) {
       const X = px(dispPos[hi*2]), Y = py(dispPos[hi*2+1]);
-      ctx.strokeStyle = "rgba(122,162,247,0.55)";
+      ctx.strokeStyle = "rgba(87,217,160,0.55)";
       ctx.lineWidth = 1 * DPR;
       ctx.beginPath();
       for (let e = off[hi]; e < off[hi+1]; e++) {
@@ -453,31 +457,36 @@ function draw(now) {
         ctx.lineTo(px(dispPos[j*2]), py(dispPos[j*2+1]));
       }
       ctx.stroke();
-      ctx.strokeStyle = "rgba(122,162,247,0.8)";
+      ctx.strokeStyle = "rgba(87,217,160,0.85)";
       for (let e = off[hi]; e < off[hi+1]; e++) {
         const j = src[e];
         ctx.beginPath();
         ctx.arc(px(dispPos[j*2]), py(dispPos[j*2+1]), 3 * DPR, 0, 6.2832);
         ctx.stroke();
       }
-      ctx.strokeStyle = "rgba(236,236,241,0.9)";
+      ctx.strokeStyle = "rgba(221,229,224,0.9)";
       ctx.lineWidth = 1.2 * DPR;
       ctx.beginPath();
       ctx.arc(X, Y, 4.5 * DPR, 0, 6.2832);
       ctx.stroke();
+      hovered = hi;
     }
   }
+  hudEl.textContent = hovered >= 0
+    ? "node " + hovered + " · deg " + (off[hovered+1] - off[hovered]) +
+      " · α " + x[hovered * C + AIDX].toFixed(2)
+    : "";
 
   // brush cursor
   if (ptr) {
-    ctx.strokeStyle = drawing ? "rgba(253,164,175,0.9)" : "rgba(255,255,255,0.35)";
+    ctx.strokeStyle = drawing ? "rgba(255,130,70,0.95)" : "rgba(221,229,224,0.4)";
     ctx.lineWidth = 1.2 * DPR;
     ctx.setLineDash([4 * DPR, 4 * DPR]);
     ctx.beginPath();
     ctx.arc(px(ptr.x), py(ptr.y), brushR * W, 0, 6.2832);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = drawing ? "rgba(253,164,175,0.9)" : "rgba(255,255,255,0.5)";
+    ctx.fillStyle = drawing ? "rgba(255,130,70,0.95)" : "rgba(221,229,224,0.6)";
     ctx.fillRect(px(ptr.x) - DPR, py(ptr.y) - DPR, 2 * DPR, 2 * DPR);
   }
 }
@@ -494,11 +503,14 @@ function alivePct() {
   return a / N * 100;
 }
 
-// diverging colormap on black: negative = blue, positive = amber
+// diverging colormap on console black: negative = phosphor, positive = amber
 function divPx(data, o, v) {
   const a = Math.min(Math.abs(v), 1);
-  if (v > 0) { data[o] = 247 * a; data[o+1] = 178 * a; data[o+2] = 73 * a; }
-  else       { data[o] = 101 * a; data[o+1] = 157 * a; data[o+2] = 247 * a; }
+  const P = [17, 21, 20];                            // console black
+  const H = v > 0 ? [255, 154, 92] : [87, 217, 160]; // amber / phosphor
+  data[o]   = P[0] + (H[0] - P[0]) * a;
+  data[o+1] = P[1] + (H[1] - P[1]) * a;
+  data[o+2] = P[2] + (H[2] - P[2]) * a;
   data[o+3] = 255;
 }
 
@@ -546,7 +558,7 @@ function drawMatrix(canvas, M, rows, cols, rowIdx, seps) {
   const g = canvas.getContext("2d");
   g.imageSmoothingEnabled = false;
   g.drawImage(tmp, 0, 0, w, h);
-  g.strokeStyle = "rgba(255,255,255,0.25)";
+  g.strokeStyle = "rgba(221,229,224,0.3)";
   g.lineWidth = 1;
   for (const r of seps) {
     const y = Math.round(r / rows * h) + 0.5;
@@ -579,17 +591,18 @@ function drawSpark() {
     const xx = (i / (lossHist.length - 1)) * (w - 8) + 4;
     i ? sctx.lineTo(xx, yOf(lossHist[i])) : sctx.moveTo(xx, yOf(lossHist[i]));
   }
-  sctx.strokeStyle = "rgba(122,162,247,0.9)";
+  sctx.strokeStyle = "rgba(87,217,160,0.9)";
   sctx.lineWidth = 1 * dpr;
   sctx.stroke();
-  sctx.strokeStyle = "rgba(255,255,255,0.08)";
+  sctx.strokeStyle = "rgba(221,229,224,0.15)";
   sctx.beginPath();
   sctx.moveTo(0, h - 0.5 * dpr); sctx.lineTo(w, h - 0.5 * dpr);
   sctx.stroke();
 }
 
 const $ = id => document.getElementById(id);
-const stT = $("stT"), stA = $("stA"), stL = $("stL");
+const stT = $("stT"), stA = $("stA"), stL = $("stL"), stE = $("stE");
+const hudEl = $("hud");
 let frame = 0;
 
 function loop(now) {
@@ -605,9 +618,11 @@ function loop(now) {
       if (traceHist.length > TRACE_W) traceHist.shift();
       drawTrace();
     }
+    if (pendingWound && t >= pendingWound) { pendingWound = 0; woundRandom(); }
     stT.textContent = t;
     stA.textContent = A.toFixed(0) + "%";
     stL.textContent = L.toFixed(4);
+    stE.textContent = src.length;
     drawSpark();
   }
   requestAnimationFrame(loop);
@@ -630,7 +645,7 @@ cv.addEventListener("pointerdown", e => {
   ptr = canvasPos(e);
   if (layout === "space") {
     drawing = true; paintDamage(ptr);
-    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "253,164,175" });
+    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,130,70" });
   } else {
     orbiting = true; moved = false; downPos = { x: e.clientX, y: e.clientY };
   }
@@ -651,7 +666,7 @@ cv.addEventListener("pointerleave", () => ptr = null);
 window.addEventListener("pointerup", e => {
   if (orbiting && !moved && ptr) {              // click without drag = damage
     paintDamage(ptr);
-    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "253,164,175" });
+    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,130,70" });
   }
   drawing = false; orbiting = false; downPos = null;
 });
@@ -687,21 +702,21 @@ sliderFill($("spd")); sliderFill($("br"));
 // view picker
 const VIEWS = [
   { id: "rgb", name: "Pattern", desc: "what the loss sees",
-    cap: "The visible pattern: rgb colored by each node, alpha as opacity.",
+    cap: "The pattern the loss trains.",
     leg: "drag to damage \u00b7 hover a node to see its neighbors" },
   { id: "act", name: "Activity", desc: "where the rule fires",
-    cap: "How strongly each node just updated \u2014 growth fronts and healing burn bright, settled regions go dark.",
-    leg: "bright = updating now \u00b7 dark = settled" },
+    cap: "Dark ember = just updated.",
+    leg: "dark ember = just updated" },
   { id: "pca", name: "Morphogens", desc: "hidden state \u2192 color",
-    cap: "The 12 hidden channels compressed to color by PCA. Nodes with similar color hold similar internal state.",
+    cap: "Hidden state, compressed to color.",
     leg: "similar color = similar hidden state" },
 ];
 const CHAN_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 CHAN_IDS.forEach(c => VIEWS.push({
   id: c, chan: true,
   cap: c === 3
-    ? "Channel \u03b1 \u2014 aliveness. A node below 0.1 here (and in its neighborhood) dies."
-    : `Hidden channel ${c} \u2014 a signal the training invented on its own; it was never told what to store here.`,
+    ? "\u03b1 \u2014 the aliveness channel."
+    : `Hidden channel ${c} \u2014 self-invented.`,
   leg: "amber = positive \u00b7 blue = negative",
 }));
 
@@ -734,13 +749,13 @@ function setView(id) {
 // layout picker
 const LAYOUTS = [
   { id: "space", name: "Space", desc: "trained 2-d positions",
-    cap: "Nodes at the coordinates the CA was trained with. This graph is genuinely 2-d \u2014 every edge is short-range.",
+    cap: "The trained 2-d coordinates.",
     leg: "drag to damage" },
   { id: "shape", name: "Shape", desc: "topology only, 3-d",
-    cap: "A spectral embedding built purely from the edges \u2014 the graph\u2019s intrinsic shape, no trained coordinates.",
+    cap: "The wiring\u2019s own shape.",
     leg: "drag to orbit \u00b7 click to damage" },
   { id: "state", name: "State", desc: "cluster by hidden state",
-    cap: "Live PCA of each node\u2019s hidden state \u2014 nodes drift together when their internal chemistry agrees.",
+    cap: "Clustered by what they think.",
     leg: "drag to orbit \u00b7 click to damage" },
 ];
 const layoutMain = $("layoutMain"), layoutCap = $("layoutCap");
@@ -768,6 +783,69 @@ function updateLegend() {
 }
 setView("rgb");
 setLayout("space");
+
+// ---- experiments: guided scenarios with a narrator ----
+const storyEl = $("story");
+let pendingWound = 0;          // CA step at which to auto-wound (0 = none)
+
+function setStory(html) { storyEl.innerHTML = html; }
+
+function woundRandom() {
+  // tear a hole centered on a random living node
+  const alive = [];
+  for (let i = 0; i < N; i++) if (x[i*C + AIDX] > 0.1) alive.push(i);
+  if (!alive.length) return;
+  const ci = alive[(Math.random() * alive.length) | 0];
+  const cx0 = dispPos[ci*2], cy0 = dispPos[ci*2+1];
+  for (let i = 0; i < N; i++) {
+    const dx = dispPos[i*2] - cx0, dy = dispPos[i*2+1] - cy0;
+    if (dx*dx + dy*dy < 0.12 * 0.12)
+      for (let c = 0; c < C; c++) x[i*C + c] = 0;
+  }
+  ripples.push({ x: cx0, y: cy0, t0: performance.now(), col: "255,130,70" });
+}
+
+const EXPERIMENTS = [
+  { num: "01", name: "Birth", desc: "one cell becomes a pattern",
+    story: "One seed, one shared rule. No blueprint \u2014 it builds itself.",
+    run() { setLayout("space"); setView("rgb"); restoreEdges(); seed(); setRunning(true); } },
+  { num: "02", name: "Injury", desc: "tear a hole, watch it heal",
+    story: "A wound. The dark embers are cells rebuilding \u2014 tear your own.",
+    run() {
+      setLayout("space"); setView("act"); setRunning(true);
+      if (alivePct() < 10) { seed(); pendingWound = t + 260; }
+      else woundRandom();
+    } },
+  { num: "03", name: "Split brain", desc: "cut the graph in half",
+    story: "The halves can\u2019t talk anymore. Each dreams alone.",
+    run() { setLayout("space"); setView("rgb"); restoreEdges(); cutSpatial(0.5); setRunning(true); } },
+  { num: "04", name: "X-ray", desc: "see its hidden chemistry",
+    story: "Same graph, arranged by what each cell is thinking.",
+    run() { restoreEdges(); setLayout("state"); setView("pca"); setRunning(true); } },
+  { num: "05", name: "Apocalypse", desc: "kill every cell at once",
+    story: "All dead, and it stays dead. Life needs a living neighbor.",
+    run() { setLayout("space"); setView("rgb"); x.fill(0); setRunning(true); } },
+];
+
+const expsEl = $("exps");
+EXPERIMENTS.forEach((ex, k) => {
+  const b = document.createElement("button");
+  b.className = "exp";
+  b.title = ex.desc;
+  const n = document.createElement("span"); n.className = "enum"; n.textContent = ex.num;
+  const t1 = document.createElement("span"); t1.className = "ename"; t1.textContent = ex.name;
+  b.append(n, t1);
+  b.onclick = () => runExperiment(k);
+  ex.btn = b;
+  expsEl.appendChild(b);
+});
+function runExperiment(k) {
+  const ex = EXPERIMENTS[k];
+  EXPERIMENTS.forEach(e => e.btn.classList.toggle("active", e === ex));
+  ex.run();
+  setStory(ex.story);
+}
+setStory("A living graph: 1024 cells, one learned rule. Poke it.");
 
 // re-render charts when an analysis section is opened (canvases have no
 // layout size while the <details> is closed)
@@ -822,6 +900,7 @@ window.addEventListener("keydown", e => {
     const i = LAYOUTS.findIndex(l => l.id === layout);
     setLayout(LAYOUTS[(i + 1) % LAYOUTS.length].id);
   }
+  else if (e.key >= "1" && e.key <= "5") runExperiment(+e.key - 1);
   else if (e.key === "e") cutRandom(0.2);
   else if (e.key === "E") restoreEdges();
 });

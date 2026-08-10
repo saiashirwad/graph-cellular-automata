@@ -6,284 +6,311 @@
 <title>Graph Neural Cellular Automata</title>
 <style>
   :root {
-    --bg:#0a0a0d;
-    --txt:#f2f2f6;
-    --muted:#a0a0ab;
-    --faint:#6b6b76;
-    --line:rgba(255,255,255,.09);
-    --accent:#7aa2f7;
-    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+    --bg:#0a0c0b;            /* console black */
+    --panel:#0d100f;
+    --well:#131716;
+    --ink:#dde5e0;
+    --dim:#8b968f;
+    --faint:#525d57;
+    --line:rgba(221,229,224,.09);
+    --line2:rgba(221,229,224,.26);
+    --green:#57d9a0;         /* phosphor — life, selection */
+    --green-dim:rgba(87,217,160,.10);
+    --amber:#ff9a5c;         /* ember — damage, protocol numbers */
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,Consolas,monospace;
   }
   * { box-sizing:border-box; margin:0; padding:0; }
   html,body { height:100%; }
   body {
-    background:var(--bg); color:var(--txt);
-    font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    background:var(--bg); color:var(--ink);
+    font:12.5px/1.55 var(--mono);
     -webkit-font-smoothing:antialiased;
-    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+    display:flex; height:100vh; overflow:hidden;
   }
+  button { font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
+  :focus-visible { outline:1px solid var(--green); outline-offset:2px; }
+  a { color:var(--dim); text-decoration:underline; text-decoration-color:var(--faint); text-underline-offset:2px; }
+  a:hover { color:var(--ink); }
 
-  /* ---------- header ---------- */
-  header {
-    display:flex; align-items:center; gap:22px; flex-shrink:0;
-    padding:14px 22px; border-bottom:1px solid var(--line);
+  /* ================= instrument rail ================= */
+  #rail {
+    width:302px; flex:none; overflow-y:auto;
+    background:var(--panel); border-right:1px solid var(--line);
+    padding:20px 18px 26px; scrollbar-width:thin; scrollbar-color:var(--faint) transparent;
   }
-  .brand { line-height:1.25; }
-  .brand h1 { font-size:15px; font-weight:600; letter-spacing:-.01em; }
-  .brand .tag { font-size:12px; color:var(--faint); }
+  #rail::-webkit-scrollbar { width:4px; }
+  #rail::-webkit-scrollbar-thumb { background:var(--faint); }
 
-  .seg { display:flex; gap:2px; border:1px solid var(--line); border-radius:8px; padding:2px; }
-  .seg button {
-    font:inherit; font-size:13px; color:var(--muted); background:none; border:none;
-    border-radius:6px; padding:5px 14px; cursor:pointer; transition:color .12s, background .12s;
+  .brand h1 { font-size:13px; font-weight:700; letter-spacing:.18em; }
+  .brand h1 em { font-style:normal; color:var(--green); }
+  .brand p { font-size:10.5px; color:var(--dim); margin-top:3px; letter-spacing:.02em; }
+
+  .sect { margin-top:22px; }
+  .sect > h2, summary.h2 {
+    display:flex; align-items:center; gap:8px;
+    font-size:9.5px; font-weight:600; letter-spacing:.22em; text-transform:uppercase;
+    color:var(--faint); margin-bottom:9px;
   }
-  .seg button:hover { color:var(--txt); }
-  .seg button.active { color:var(--txt); background:rgba(255,255,255,.08); }
+  .sect > h2::after, summary.h2::after { content:""; flex:1; height:1px; background:var(--line); }
 
-  .transport { display:flex; gap:6px; }
+  /* --- telemetry --- */
+  #telemetry { display:grid; grid-template-columns:1fr 1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); }
+  .stat { background:var(--panel); padding:7px 9px 6px; }
+  .stat label { display:block; font-size:9px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); }
+  .stat b { font-size:14px; font-weight:600; color:var(--ink); font-variant-numeric:tabular-nums; }
+  .stat.wide { grid-column:1 / -1; }
+  .stat.wide .lossrow { display:flex; align-items:baseline; justify-content:space-between; }
+  #spark { width:100%; height:26px; display:block; margin-top:4px; }
+
+  .transport { display:grid; grid-template-columns:1fr 1fr 1fr; gap:6px; margin-top:8px; }
   .transport button {
-    font:inherit; font-size:13px; color:var(--txt);
-    background:none; border:1px solid var(--line); border-radius:7px;
-    padding:6px 14px; cursor:pointer; transition:border-color .12s, color .12s;
+    border:1px solid var(--line); padding:6px 0; font-size:11.5px; color:var(--dim);
+    transition:border-color .12s, color .12s;
   }
-  .transport button:hover { border-color:rgba(255,255,255,.25); }
-  .transport button#pause { min-width:74px; }
-  .transport button#killall { color:var(--muted); }
-  .transport button#killall:hover { color:#e88; border-color:rgba(238,136,136,.35); }
+  .transport button:hover { border-color:var(--line2); color:var(--ink); }
 
-  #statline {
-    margin-left:auto; display:flex; align-items:center; gap:16px;
-    font-family:var(--mono); font-size:12.5px; color:var(--muted);
+  /* --- specimen (model picker) --- */
+  #models { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:var(--line); border:1px solid var(--line); }
+  #models button { background:var(--panel); padding:7px 0; font-size:11.5px; color:var(--dim); transition:color .12s; }
+  #models button:hover { color:var(--ink); }
+  #models button.active { background:var(--well); color:var(--green); }
+
+  /* --- protocols (experiments) --- */
+  #exps { display:flex; flex-direction:column; gap:2px; }
+  .exp {
+    display:flex; align-items:baseline; gap:9px; text-align:left;
+    padding:5px 8px; border-left:2px solid transparent;
+    transition:background .12s, border-color .12s;
   }
-  #statline b { color:var(--txt); font-weight:500; }
-  #spark { width:110px; height:26px; display:block; }
+  .exp:hover { background:var(--green-dim); }
+  .exp.active { border-left-color:var(--green); background:var(--green-dim); }
+  .exp .enum { font-size:10px; color:var(--amber); }
+  .exp .ename { font-size:12px; color:var(--ink); }
 
-  /* ---------- main ---------- */
-  main { flex:1; display:flex; min-height:0; }
-  #stage { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; min-width:0; }
-  #wrap { position:relative; width:min(88vmin,840px); aspect-ratio:1; }
-  canvas#c { width:100%; height:100%; display:block; cursor:none; touch-action:none; }
-  #legend {
-    position:absolute; left:2px; bottom:-4px; pointer-events:none;
-    font-size:12px; color:var(--faint);
-  }
-
-  /* ---------- sidebar ---------- */
-  #panel {
-    width:322px; flex-shrink:0; padding:22px;
-    border-left:1px solid var(--line); overflow-y:auto;
-  }
-  .intro { font-size:13px; color:var(--muted); }
-
-  .sect { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
-  .sect > h2, summary {
-    font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
-    color:var(--faint); margin-bottom:12px;
-  }
-
-  /* view picker */
-  #viewMain, #layoutMain { display:flex; flex-direction:column; gap:3px; }
+  /* --- optics / projection pickers --- */
+  #viewMain, #layoutMain { display:flex; flex-direction:column; gap:2px; }
   .vrow {
-    font:inherit; display:flex; justify-content:space-between; align-items:baseline;
-    padding:7px 10px; background:none; border:1px solid transparent; border-radius:8px;
-    cursor:pointer; transition:background .12s, border-color .12s;
+    display:flex; justify-content:space-between; align-items:baseline; gap:8px;
+    padding:5px 8px; border-left:2px solid transparent; text-align:left;
+    transition:background .12s, border-color .12s;
   }
-  .vrow:hover { background:rgba(255,255,255,.04); }
-  .vrow.active { background:rgba(255,255,255,.05); border-color:var(--line); }
-  .vname { font-size:13.5px; color:var(--txt); }
-  .vdesc { font-size:11.5px; color:var(--faint); }
-  .sublabel { font-size:12px; color:var(--faint); margin:12px 0 7px; }
-  #viewChans { display:flex; flex-wrap:wrap; gap:5px; }
+  .vrow:hover { background:var(--green-dim); }
+  .vrow.active { border-left-color:var(--green); background:var(--green-dim); }
+  .vname { font-size:12px; color:var(--ink); }
+  .vdesc { font-size:10px; color:var(--dim); }
+  .sublabel { font-size:9.5px; letter-spacing:.16em; text-transform:uppercase; color:var(--faint); margin:10px 0 6px; }
+  #viewChans { display:grid; grid-template-columns:repeat(7,1fr); gap:3px; }
   #viewChans .chip {
-    font-family:var(--mono); font-size:11px; color:var(--muted);
-    min-width:27px; padding:4px 0; text-align:center;
-    background:none; border:1px solid var(--line); border-radius:6px;
-    cursor:pointer; transition:color .12s, border-color .12s;
+    font-size:10px; color:var(--dim); padding:4px 0; text-align:center;
+    border:1px solid var(--line); transition:all .12s;
   }
-  #viewChans .chip:hover { color:var(--txt); }
-  #viewChans .chip.active { color:var(--txt); border-color:var(--accent); }
-  #viewCap { font-size:12px; color:var(--muted); margin-top:12px; min-height:2.8em; }
+  #viewChans .chip:hover { color:var(--ink); border-color:var(--line2); }
+  #viewChans .chip.active { color:var(--green); border-color:var(--green); background:var(--green-dim); }
+  #viewCap, #layoutCap { font-size:10.5px; color:var(--dim); margin-top:7px; }
 
-  /* display controls */
+  /* --- surgery --- */
+  .row { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .row + .row { margin-top:6px; grid-template-columns:1fr; }
+  .row button {
+    border:1px solid var(--line); padding:6px 0; font-size:11px; color:var(--dim);
+    transition:border-color .12s, color .12s;
+  }
+  .row button:hover { border-color:var(--amber); color:var(--amber); }
+  .row button#restoreEdges:hover { border-color:var(--green); color:var(--green); }
+
+  /* --- console (display controls) --- */
   .toggle {
     display:flex; align-items:center; justify-content:space-between;
-    font-size:13.5px; color:var(--muted); cursor:pointer; padding:5px 0;
+    font-size:11.5px; color:var(--dim); cursor:pointer; padding:4px 0;
     -webkit-user-select:none; user-select:none;
   }
-  .toggle:hover { color:var(--txt); }
+  .toggle:hover { color:var(--ink); }
   .toggle input { display:none; }
-  .toggle .sw {
-    width:28px; height:16px; border-radius:9px; position:relative;
-    background:rgba(255,255,255,.13); transition:background .15s;
-  }
-  .toggle .sw::after {
-    content:""; position:absolute; width:12px; height:12px; border-radius:50%;
-    background:#c6c6ce; top:2px; left:2px; transition:transform .15s, background .15s;
-  }
-  .toggle input:checked + .sw { background:rgba(122,162,247,.5); }
-  .toggle input:checked + .sw::after { transform:translateX(12px); background:#fff; }
+  .toggle .sw { width:24px; height:13px; position:relative; background:var(--well); border:1px solid var(--line); transition:all .15s; }
+  .toggle .sw::after { content:""; position:absolute; width:7px; height:7px; background:var(--faint); top:2px; left:2px; transition:all .15s; }
+  .toggle input:checked + .sw { border-color:var(--green); }
+  .toggle input:checked + .sw::after { transform:translateX(11px); background:var(--green); }
 
-  .ctrl { margin-top:14px; }
-  .ctrl label { font-size:13px; color:var(--muted); display:flex; justify-content:space-between; margin-bottom:8px; }
-  .ctrl label span { color:var(--txt); font-family:var(--mono); font-size:12px; }
+  .ctrl { margin-top:11px; }
+  .ctrl label { font-size:11px; color:var(--dim); display:flex; justify-content:space-between; margin-bottom:6px; }
+  .ctrl label span { color:var(--ink); font-size:10.5px; font-variant-numeric:tabular-nums; }
   input[type=range] {
     -webkit-appearance:none; appearance:none; width:100%; height:2px;
-    background:linear-gradient(90deg,#9a9aa5 var(--fill,50%), rgba(255,255,255,.14) var(--fill,50%));
-    border-radius:1px; outline:none; cursor:pointer;
+    background:linear-gradient(90deg,var(--green) var(--fill,50%), var(--line) var(--fill,50%));
+    outline:none; cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%;
-    background:var(--txt); border:none;
+    -webkit-appearance:none; appearance:none; width:9px; height:9px;
+    background:var(--ink); border:none; border-radius:1px;
   }
-  input[type=range]::-moz-range-thumb {
-    width:12px; height:12px; border-radius:50%; background:var(--txt); border:none;
+  input[type=range]::-moz-range-thumb { width:9px; height:9px; background:var(--ink); border:none; border-radius:1px; }
+
+  /* --- records (trace + weights) --- */
+  details { margin-top:22px; }
+  summary.h2 { cursor:pointer; list-style:none; }
+  summary.h2::-webkit-details-marker { display:none; }
+  summary.h2::before { content:"+"; color:var(--dim); }
+  details[open] summary.h2::before { content:"\2212"; }
+  .mat { width:100%; display:block; image-rendering:pixelated; background:var(--well); border:1px solid var(--line); }
+  #trace { height:52px; }
+  .wcap { font-size:10.5px; color:var(--dim); margin-top:5px; }
+  .wcap + .mat { margin-top:11px; }
+
+  .keys { margin-top:24px; padding-top:12px; border-top:1px solid var(--line);
+          font-size:10px; color:var(--faint); line-height:1.9; }
+  .keys b { color:var(--dim); font-weight:600; }
+
+  /* ================= stage ================= */
+  #stage {
+    flex:1; position:relative; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; gap:14px; padding:26px;
+    background-image:radial-gradient(rgba(221,229,224,.045) 1px, transparent 1px);
+    background-size:26px 26px;
   }
-
-  /* topology */
-  .cap { font-size:12px; color:var(--muted); margin-bottom:10px; }
-  .row { display:flex; gap:6px; }
-  .row + .row { margin-top:6px; }
-  .row button {
-    flex:1; font:inherit; font-size:12.5px; color:var(--txt);
-    background:none; border:1px solid var(--line); border-radius:7px;
-    padding:6px 0; cursor:pointer; transition:border-color .12s;
+  #wrap {
+    position:relative;
+    width:min(calc(100vh - 150px), calc(100vw - 400px), 800px);
+    aspect-ratio:1; border:1px solid var(--line); background:var(--bg);
   }
-  .row button:hover { border-color:rgba(255,255,255,.25); }
-
-  /* analysis */
-  details { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
-  summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; margin-bottom:0; }
-  summary::-webkit-details-marker { display:none; }
-  summary::after { content:"+"; font-family:var(--mono); font-size:12px; }
-  details[open] summary::after { content:"\2212"; }
-  details[open] summary { margin-bottom:12px; }
-  summary:hover { color:var(--muted); }
-  .mat { width:100%; display:block; image-rendering:pixelated; border-radius:3px; }
-  #trace { height:56px; }
-  .wcap { font-size:12px; color:var(--muted); margin-top:7px; }
-  .wcap + .mat { margin-top:14px; }
-
-  .keys { margin-top:24px; padding-top:16px; border-top:1px solid var(--line);
-          font-family:var(--mono); font-size:11px; color:var(--faint); line-height:1.8; }
-
-  a { color:inherit; text-decoration:underline;
-      text-decoration-color:rgba(255,255,255,.25); text-underline-offset:2px; }
-  a:hover { color:var(--txt); }
+  #wrap::after {           /* viewfinder corner ticks */
+    content:""; position:absolute; inset:-1px; pointer-events:none;
+    background:
+      linear-gradient(var(--line2),var(--line2)) left  top    / 14px 1px,
+      linear-gradient(var(--line2),var(--line2)) left  top    / 1px 14px,
+      linear-gradient(var(--line2),var(--line2)) right top    / 14px 1px,
+      linear-gradient(var(--line2),var(--line2)) right top    / 1px 14px,
+      linear-gradient(var(--line2),var(--line2)) left  bottom / 14px 1px,
+      linear-gradient(var(--line2),var(--line2)) left  bottom / 1px 14px,
+      linear-gradient(var(--line2),var(--line2)) right bottom / 14px 1px,
+      linear-gradient(var(--line2),var(--line2)) right bottom / 1px 14px;
+    background-repeat:no-repeat;
+  }
+  canvas#c { width:100%; height:100%; display:block; cursor:none; touch-action:none; }
+  #hud {
+    position:absolute; top:9px; left:11px; pointer-events:none;
+    font-size:10px; color:var(--dim); letter-spacing:.04em; min-height:1.5em;
+  }
+  #story { font-size:12.5px; color:var(--ink); text-align:center; max-width:640px; min-height:1.55em; }
+  #story b { color:var(--green); font-weight:600; }
+  #story::before { content:"\25B8\00a0 "; color:var(--green); }
+  #legend { font-size:10.5px; color:var(--faint); text-align:center; }
 
   @media (max-width:900px) {
-    body { overflow:auto; }
-    header { flex-wrap:wrap; gap:12px; }
-    #statline { margin-left:0; width:100%; }
-    main { flex-direction:column; }
-    #wrap { width:min(92vw,92vh); }
-    #panel { width:auto; border-left:none; border-top:1px solid var(--line); }
+    body { flex-direction:column; overflow:auto; height:auto; }
+    #stage { order:0; padding:16px; min-height:70vh; }
+    #wrap { width:min(88vw, calc(100vh - 160px)); }
+    #rail { order:1; width:100%; border-right:none; border-top:1px solid var(--line); }
   }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="brand">
-    <h1>Graph Neural CA</h1>
-    <div class="tag">a cellular automaton on an arbitrary graph</div>
-  </div>
-  <div id="models" class="seg">
-    <button data-model="heart" class="active">Heart</button>
-    <button data-model="ring">Rainbow ring</button>
-  </div>
-  <div class="transport">
-    <button id="reset">Reseed</button>
-    <button id="pause">Pause</button>
-    <button id="killall">Clear</button>
-  </div>
-  <div id="statline">
-    <span>t <b id="stT">0</b></span>
-    <span>alive <b id="stA">0%</b></span>
-    <span>loss <b id="stL">–</b></span>
-    <canvas id="spark"></canvas>
-  </div>
-</header>
+<aside id="rail">
+  <header class="brand">
+    <h1>GRAPH NEURAL <em>CA</em></h1>
+    <p>a living graph &mdash; one learned rule, running in your browser</p>
+  </header>
 
-<main>
-  <div id="stage">
-    <div id="wrap">
-      <canvas id="c"></canvas>
-      <div id="legend"></div>
-    </div>
-  </div>
-
-  <aside id="panel">
-    <p class="intro">Every node runs the same learned rule and talks only to its
-       graph neighbors. From a single seed it grows the target pattern &mdash;
-       and heals if you drag across it.</p>
-
-    <div class="sect">
-      <h2>Layout</h2>
-      <div id="layoutMain"></div>
-      <div id="layoutCap" class="cap" style="margin:12px 0 0"></div>
-    </div>
-
-    <div class="sect">
-      <h2>View</h2>
-      <div id="viewMain"></div>
-      <div class="sublabel">Single channel</div>
-      <div id="viewChans"></div>
-      <div id="viewCap"></div>
-    </div>
-
-    <div class="sect">
-      <h2>Display</h2>
-      <label class="toggle">Target ghost <input type="checkbox" id="ghost" checked><span class="sw"></span></label>
-      <label class="toggle">Graph edges <input type="checkbox" id="edges" checked><span class="sw"></span></label>
-      <label class="toggle">Glow <input type="checkbox" id="glow" checked><span class="sw"></span></label>
-      <div class="ctrl">
-        <label>Speed <span id="spdV">2 steps / frame</span></label>
-        <input type="range" id="spd" min="1" max="8" value="2">
-      </div>
-      <div class="ctrl">
-        <label>Brush radius <span id="brV">0.08</span></label>
-        <input type="range" id="br" min="2" max="40" value="8">
+  <div class="sect">
+    <h2>Telemetry</h2>
+    <div id="telemetry">
+      <div class="stat"><label>step</label><b id="stT">0</b></div>
+      <div class="stat"><label>alive</label><b id="stA">0%</b></div>
+      <div class="stat"><label>edges</label><b id="stE">&ndash;</b></div>
+      <div class="stat wide">
+        <div class="lossrow"><label>loss vs target</label><b id="stL">&ndash;</b></div>
+        <canvas id="spark"></canvas>
       </div>
     </div>
-
-    <div class="sect">
-      <h2>Topology</h2>
-      <p class="cap">Surgery on the graph itself &mdash; the rule keeps running
-         on whatever remains.</p>
-      <div class="row">
-        <button id="cutSpatial">Cut in half</button>
-        <button id="cutRandom">Drop 20%</button>
-      </div>
-      <div class="row">
-        <button id="restoreEdges">Restore all edges</button>
-      </div>
+    <div class="transport">
+      <button id="pause">Pause</button>
+      <button id="reset">Reseed</button>
+      <button id="killall">Clear</button>
     </div>
+  </div>
 
-    <details open>
-      <summary>Seed node history</summary>
-      <canvas id="trace" class="mat"></canvas>
-      <p class="wcap">Each row is one of the seed node&rsquo;s 16 channels, time
-         running left to right. It settles into a stable chemical fingerprint.</p>
-    </details>
-
-    <details>
-      <summary>The rule&rsquo;s weights</summary>
-      <canvas id="w1" class="mat"></canvas>
-      <p class="wcap">W&#8321; &mdash; how the 128 hidden units (columns) read the
-         48 inputs: own state, neighbor mean, difference (row blocks).</p>
-      <canvas id="w2" class="mat"></canvas>
-      <p class="wcap">W&#8322; &mdash; how those hidden units write the 16 state
-         updates; top block is rgb&alpha;.</p>
-    </details>
-
-    <div class="keys">
-      space pause &middot; r reseed &middot; k clear &middot; v view &middot;
-      l layout &middot; e cut edges &middot; E restore<br>
-      after Distill&rsquo;s <a href="https://distill.pub/2020/growing-ca"
-      target="_blank" rel="noopener">Growing Neural CA</a> &mdash; runs entirely
-      in your browser
+  <div class="sect">
+    <h2>Specimen</h2>
+    <div id="models">
+      <button data-model="heart" class="active">Heart</button>
+      <button data-model="ring">Rainbow ring</button>
     </div>
-  </aside>
+  </div>
+
+  <div class="sect">
+    <h2>Protocols</h2>
+    <div id="exps"></div>
+  </div>
+
+  <div class="sect">
+    <h2>Optics</h2>
+    <div id="viewMain"></div>
+    <div class="sublabel">Single channel</div>
+    <div id="viewChans"></div>
+    <div id="viewCap"></div>
+  </div>
+
+  <div class="sect">
+    <h2>Projection</h2>
+    <div id="layoutMain"></div>
+    <div id="layoutCap"></div>
+  </div>
+
+  <div class="sect">
+    <h2>Surgery</h2>
+    <div class="row">
+      <button id="cutSpatial">Cut in half</button>
+      <button id="cutRandom">Drop 20%</button>
+    </div>
+    <div class="row">
+      <button id="restoreEdges">Restore edges</button>
+    </div>
+  </div>
+
+  <div class="sect">
+    <h2>Console</h2>
+    <label class="toggle">Target ghost <input type="checkbox" id="ghost" checked><span class="sw"></span></label>
+    <label class="toggle">Graph edges <input type="checkbox" id="edges" checked><span class="sw"></span></label>
+    <label class="toggle">Halo <input type="checkbox" id="glow" checked><span class="sw"></span></label>
+    <div class="ctrl">
+      <label>Speed <span id="spdV">2 steps / frame</span></label>
+      <input type="range" id="spd" min="1" max="8" value="2">
+    </div>
+    <div class="ctrl">
+      <label>Brush <span id="brV">0.08</span></label>
+      <input type="range" id="br" min="2" max="40" value="8">
+    </div>
+  </div>
+
+  <details open>
+    <summary class="h2">Seed node history</summary>
+    <canvas id="trace" class="mat"></canvas>
+    <p class="wcap">the seed&rsquo;s 16 channels over time &mdash; amber positive, green negative</p>
+  </details>
+
+  <details>
+    <summary class="h2">The rule&rsquo;s weights</summary>
+    <canvas id="w1" class="mat"></canvas>
+    <p class="wcap">W&#8321; &mdash; what each hidden unit reads (self / neighbors / difference)</p>
+    <canvas id="w2" class="mat"></canvas>
+    <p class="wcap">W&#8322; &mdash; what it writes back to the 16 channels</p>
+  </details>
+
+  <div class="keys">
+    <b>1&ndash;5</b> protocols &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot;
+    <b>k</b> clear &middot; <b>v</b> optics &middot; <b>l</b> projection &middot; <b>e/E</b> edges<br>
+    after <a href="https://distill.pub/2020/growing-ca" target="_blank"
+    rel="noopener">Growing Neural CA</a>, on an irregular graph
+  </div>
+</aside>
+
+<main id="stage">
+  <div id="wrap">
+    <canvas id="c"></canvas>
+    <div id="hud"></div>
+  </div>
+  <div id="story"></div>
+  <div id="legend"></div>
 </main>
 
 <script src="bundle.js"></script>
