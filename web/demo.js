@@ -224,7 +224,7 @@ function seed() {
   for (let c = AIDX; c < C; c++) x[SEED * C + c] = 1;
   t = 0;
   traceHist.length = 0;
-  if (dispPos) ripples.push({ x: dispPos[SEED*2], y: dispPos[SEED*2+1], t0: performance.now(), col: "87,217,160" });
+  if (dispPos) ripples.push({ x: dispPos[SEED*2], y: dispPos[SEED*2+1], t0: performance.now(), col: "255,255,255" });
 }
 
 // ---- one CA step (numerically identical to the PyTorch model) ----
@@ -302,7 +302,7 @@ function draw(now) {
   ctx.clearRect(0, 0, W, W);
   if (showEdges) {
     ctx.lineWidth = Math.max(1, 0.5 * DPR);
-    ctx.strokeStyle = "rgba(180,200,190,0.08)";
+    ctx.strokeStyle = "rgba(255,255,255,0.09)";
     ctx.beginPath();
     for (let i = 0; i < N; i++)
       for (let k = off[i]; k < off[i+1]; k++) {
@@ -361,7 +361,7 @@ function draw(now) {
     for (let i = 0; i < N; i++) {
       const v = cl(Math.sqrt(act[i] / scale));
       if (v < 0.02 && x[i * C + AIDX] < 0.05) continue;
-      const R = 90 + 165 * v, G = 55 + 120 * v, B = 35 + 45 * v;   // ember: dim coal -> hot amber
+      const R = 60 + 195 * v, G = 50 + 90 * v, B = 140 + 35 * v;   // deep indigo -> hot rose
       ctx.fillStyle = `rgba(${R|0},${G|0},${B|0},${cl(0.10 + 0.90 * v).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), rCore * (0.5 + 0.7 * cl(v)), 0, 6.2832);
@@ -412,23 +412,23 @@ function draw(now) {
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), rCore * (0.6 + 0.4 * cl(a)) * (1 - 0.25 * dispD[i]), 0, 6.2832);
       ctx.fill();
       ctx.lineWidth = 0.75 * DPR;
-      ctx.strokeStyle = "rgba(221,229,224,0.28)";
+      ctx.strokeStyle = "rgba(255,255,255,0.28)";
       ctx.stroke();
     }
   } else {
-    // single state channel, diverging: blue = negative, amber = positive
+    // single state channel, diverging: cyan = negative, rose = positive
     const c0 = view;
     let s = 1e-6;
     for (let i = 0; i < N; i++) { const v = Math.abs(x[i*C + c0]); if (v > s) s = v; }
     for (let i = 0; i < N; i++) {
       if (x[i * C + AIDX] < 0.05) continue;
       const X = px(dispPos[i*2]), Y = py(dispPos[i*2+1]);
-      ctx.fillStyle = "rgba(221,229,224,0.10)";
+      ctx.fillStyle = "rgba(255,255,255,0.10)";
       ctx.beginPath(); ctx.arc(X, Y, 1.5 * DPR, 0, 6.2832); ctx.fill();
       const v = x[i*C + c0] / s;
       const a = cl(Math.abs(v));
       if (a < 0.03) continue;
-      ctx.fillStyle = v > 0 ? `rgba(255,154,92,${a.toFixed(3)})` : `rgba(87,217,160,${a.toFixed(3)})`;
+      ctx.fillStyle = v > 0 ? `rgba(255,111,145,${a.toFixed(3)})` : `rgba(90,209,232,${a.toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(X, Y, rCore * (0.5 + 0.5 * a), 0, 6.2832);
       ctx.fill();
@@ -448,7 +448,7 @@ function draw(now) {
     }
     if (hi >= 0) {
       const X = px(dispPos[hi*2]), Y = py(dispPos[hi*2+1]);
-      ctx.strokeStyle = "rgba(87,217,160,0.55)";
+      ctx.strokeStyle = "rgba(255,255,255,0.30)";
       ctx.lineWidth = 1 * DPR;
       ctx.beginPath();
       for (let e = off[hi]; e < off[hi+1]; e++) {
@@ -457,14 +457,14 @@ function draw(now) {
         ctx.lineTo(px(dispPos[j*2]), py(dispPos[j*2+1]));
       }
       ctx.stroke();
-      ctx.strokeStyle = "rgba(87,217,160,0.85)";
+      ctx.strokeStyle = "rgba(255,255,255,0.75)";
       for (let e = off[hi]; e < off[hi+1]; e++) {
         const j = src[e];
         ctx.beginPath();
         ctx.arc(px(dispPos[j*2]), py(dispPos[j*2+1]), 3 * DPR, 0, 6.2832);
         ctx.stroke();
       }
-      ctx.strokeStyle = "rgba(221,229,224,0.9)";
+      ctx.strokeStyle = "rgba(255,255,255,0.9)";
       ctx.lineWidth = 1.2 * DPR;
       ctx.beginPath();
       ctx.arc(X, Y, 4.5 * DPR, 0, 6.2832);
@@ -475,18 +475,20 @@ function draw(now) {
   hudEl.textContent = hovered >= 0
     ? "node " + hovered + " · deg " + (off[hovered+1] - off[hovered]) +
       " · α " + x[hovered * C + AIDX].toFixed(2)
-    : "";
+    : typeof view === "number"
+      ? (view === 3 ? "α · aliveness" : "channel " + view + " · self-invented")
+      : "";
 
   // brush cursor
   if (ptr) {
-    ctx.strokeStyle = drawing ? "rgba(255,130,70,0.95)" : "rgba(221,229,224,0.4)";
+    ctx.strokeStyle = drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.35)";
     ctx.lineWidth = 1.2 * DPR;
     ctx.setLineDash([4 * DPR, 4 * DPR]);
     ctx.beginPath();
     ctx.arc(px(ptr.x), py(ptr.y), brushR * W, 0, 6.2832);
     ctx.stroke();
     ctx.setLineDash([]);
-    ctx.fillStyle = drawing ? "rgba(255,130,70,0.95)" : "rgba(221,229,224,0.6)";
+    ctx.fillStyle = drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.7)";
     ctx.fillRect(px(ptr.x) - DPR, py(ptr.y) - DPR, 2 * DPR, 2 * DPR);
   }
 }
@@ -503,11 +505,11 @@ function alivePct() {
   return a / N * 100;
 }
 
-// diverging colormap on console black: negative = phosphor, positive = amber
+// diverging colormap on midnight: negative = cyan, positive = rose
 function divPx(data, o, v) {
   const a = Math.min(Math.abs(v), 1);
-  const P = [17, 21, 20];                            // console black
-  const H = v > 0 ? [255, 154, 92] : [87, 217, 160]; // amber / phosphor
+  const P = [10, 10, 11];                            // black
+  const H = v > 0 ? [255, 111, 145] : [90, 209, 232]; // rose / cyan
   data[o]   = P[0] + (H[0] - P[0]) * a;
   data[o+1] = P[1] + (H[1] - P[1]) * a;
   data[o+2] = P[2] + (H[2] - P[2]) * a;
@@ -558,7 +560,7 @@ function drawMatrix(canvas, M, rows, cols, rowIdx, seps) {
   const g = canvas.getContext("2d");
   g.imageSmoothingEnabled = false;
   g.drawImage(tmp, 0, 0, w, h);
-  g.strokeStyle = "rgba(221,229,224,0.3)";
+  g.strokeStyle = "rgba(255,255,255,0.25)";
   g.lineWidth = 1;
   for (const r of seps) {
     const y = Math.round(r / rows * h) + 0.5;
@@ -591,10 +593,10 @@ function drawSpark() {
     const xx = (i / (lossHist.length - 1)) * (w - 8) + 4;
     i ? sctx.lineTo(xx, yOf(lossHist[i])) : sctx.moveTo(xx, yOf(lossHist[i]));
   }
-  sctx.strokeStyle = "rgba(87,217,160,0.9)";
+  sctx.strokeStyle = "rgba(250,250,250,0.9)";
   sctx.lineWidth = 1 * dpr;
   sctx.stroke();
-  sctx.strokeStyle = "rgba(221,229,224,0.15)";
+  sctx.strokeStyle = "rgba(255,255,255,0.12)";
   sctx.beginPath();
   sctx.moveTo(0, h - 0.5 * dpr); sctx.lineTo(w, h - 0.5 * dpr);
   sctx.stroke();
@@ -603,7 +605,7 @@ function drawSpark() {
 const $ = id => document.getElementById(id);
 const stT = $("stT"), stA = $("stA"), stL = $("stL"), stE = $("stE");
 const hudEl = $("hud");
-let frame = 0;
+let frame = 0, thumbTick = 0;
 
 function loop(now) {
   if (running) for (let s = 0; s < stepsPerFrame; s++) step();
@@ -618,6 +620,7 @@ function loop(now) {
       if (traceHist.length > TRACE_W) traceHist.shift();
       drawTrace();
     }
+    if ((thumbTick++ & 3) === 0) paintThumbs();
     if (pendingWound && t >= pendingWound) { pendingWound = 0; woundRandom(); }
     stT.textContent = t;
     stA.textContent = A.toFixed(0) + "%";
@@ -645,7 +648,7 @@ cv.addEventListener("pointerdown", e => {
   ptr = canvasPos(e);
   if (layout === "space") {
     drawing = true; paintDamage(ptr);
-    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,130,70" });
+    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,111,145" });
   } else {
     orbiting = true; moved = false; downPos = { x: e.clientX, y: e.clientY };
   }
@@ -666,7 +669,7 @@ cv.addEventListener("pointerleave", () => ptr = null);
 window.addEventListener("pointerup", e => {
   if (orbiting && !moved && ptr) {              // click without drag = damage
     paintDamage(ptr);
-    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,130,70" });
+    ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,111,145" });
   }
   drawing = false; orbiting = false; downPos = null;
 });
@@ -679,9 +682,7 @@ function setRunning(r) {
 $("reset").onclick   = seed;
 pauseBtn.onclick     = () => setRunning(!running);
 $("killall").onclick = () => x.fill(0);
-$("ghost").onchange  = e => showGhost = e.target.checked;
 $("edges").onchange  = e => showEdges = e.target.checked;
-$("glow").onchange   = e => glow = e.target.checked;
 
 function sliderFill(el) {
   const u = (el.value - el.min) / (el.max - el.min) * 100;
@@ -705,8 +706,8 @@ const VIEWS = [
     cap: "The pattern the loss trains.",
     leg: "drag to damage \u00b7 hover a node to see its neighbors" },
   { id: "act", name: "Activity", desc: "where the rule fires",
-    cap: "Dark ember = just updated.",
-    leg: "dark ember = just updated" },
+    cap: "Bright rose = just updated.",
+    leg: "bright rose = just updated" },
   { id: "pca", name: "Morphogens", desc: "hidden state \u2192 color",
     cap: "Hidden state, compressed to color.",
     leg: "similar color = similar hidden state" },
@@ -717,33 +718,102 @@ CHAN_IDS.forEach(c => VIEWS.push({
   cap: c === 3
     ? "\u03b1 \u2014 the aliveness channel."
     : `Hidden channel ${c} \u2014 self-invented.`,
-  leg: "amber = positive \u00b7 blue = negative",
+  leg: "rose = positive \u00b7 cyan = negative",
 }));
 
-const viewMain = $("viewMain"), viewChans = $("viewChans"),
-      viewCap = $("viewCap"), legendEl = $("legend");
-VIEWS.forEach(v => {
-  const b = document.createElement("button");
-  if (v.chan) {
-    b.className = "chip";
-    b.textContent = v.id === 3 ? "\u03b1" : String(v.id);
-    viewChans.appendChild(b);
-  } else {
-    b.className = "vrow";
-    const n = document.createElement("span"); n.className = "vname"; n.textContent = v.name;
-    const d = document.createElement("span"); d.className = "vdesc"; d.textContent = v.desc;
-    b.append(n, d);
-    viewMain.appendChild(b);
+const viewMain = $("viewMain"), viewCap = $("viewCap"),
+      legendEl = $("legend"), viewport = $("viewport"), chanStrip = $("chanstrip");
+
+const chanLabel = c => c === 3 ? "\u03b1" : String(c);
+const viewOf = id => VIEWS.find(v => v.id === id);
+
+// ---- channel filmstrip -------------------------------------------------
+// every hidden channel gets a live thumbnail of the whole graph rendered in
+// that channel, so you pick by looking at the pattern, not at a number.
+const TH = 54;                                   // thumbnail css px
+const thumbs = [];                               // {g, s, c}
+function makeThumb(c) {
+  const cv = document.createElement("canvas");
+  cv.className = "cth";
+  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const s = Math.round(TH * dpr);
+  cv.width = s; cv.height = s;
+  thumbs.push({ g: cv.getContext("2d"), s, c });
+  return cv;
+}
+function paintThumbs() {
+  if (!dispPos) return;
+  const r = Math.max(1, Math.round(thumbs[0].s / 54));
+  for (const th of thumbs) {
+    const g = th.g, S = th.s;
+    g.clearRect(0, 0, S, S);
+    let m = 1e-6;
+    for (let i = 0; i < N; i++)
+      if (x[i*C + AIDX] > 0.05) { const v = Math.abs(x[i*C + th.c]); if (v > m) m = v; }
+    for (let i = 0; i < N; i++) {
+      if (x[i*C + AIDX] < 0.05) continue;
+      const v = x[i*C + th.c] / m;
+      const a = Math.min(Math.abs(v), 1);
+      if (a < 0.04) continue;
+      g.fillStyle = v > 0 ? `rgba(255,111,145,${a.toFixed(3)})`
+                          : `rgba(90,209,232,${a.toFixed(3)})`;
+      g.fillRect(dispPos[i*2] * S - r, (1 - dispPos[i*2+1]) * S - r, 2*r, 2*r);
+    }
   }
+}
+
+// rail: three named views plus one row that hands the choice to the canvas
+VIEWS.filter(v => !v.chan).forEach(v => {
+  const b = document.createElement("button");
+  b.className = "vrow";
+  const n = document.createElement("span"); n.className = "vname"; n.textContent = v.name;
+  const d = document.createElement("span"); d.className = "vdesc"; d.textContent = v.desc;
+  b.append(n, d);
   b.onclick = () => setView(v.id);
   v.btn = b;
+  viewMain.appendChild(b);
 });
-function setView(id) {
+// the filmstrip itself, pinned to the foot of the canvas
+CHAN_IDS.forEach(c => {
+  const v = viewOf(c);
+  const b = document.createElement("button");
+  b.className = "cell" + (c === 3 ? " alpha" : "");
+  b.title = v.cap;
+  const l = document.createElement("span"); l.className = "clab"; l.textContent = chanLabel(c);
+  b.append(makeThumb(c), l);
+  b.onmouseenter = () => setView(c, true);
+  b.onclick = () => setView(c);
+  v.bar = b;
+  chanStrip.appendChild(b);
+});
+chanStrip.onmouseleave = () => setView(lockedView, true);
+
+let lockedView = "rgb", lastChan = 3;
+function setView(id, preview) {
   view = id;
-  const v = VIEWS.find(v => v.id === id);
-  VIEWS.forEach(w => w.btn.classList.toggle("active", w === v));
+  if (!preview) { lockedView = id; if (typeof id === "number") lastChan = id; }
+  const v = viewOf(id);
+  // highlight follows the *locked* view, so skimming the filmstrip doesn't
+  // make the rail flicker; the caption follows the preview.
+  VIEWS.forEach(w => {
+    if (w.btn) w.btn.classList.toggle("active", w.id === lockedView);
+    if (w.bar) w.bar.classList.toggle("active", w.id === lockedView);
+  });
   viewCap.textContent = v.cap;
   updateLegend();
+}
+function stepChannel(d) {
+  if (typeof lockedView !== "number") return;
+  const i = CHAN_IDS.indexOf(lockedView);
+  setView(CHAN_IDS[(i + d + CHAN_IDS.length) % CHAN_IDS.length]);
+}
+// `v` walks the four optics modes — not all 16 views, which used to drop you
+// onto an arbitrary channel and make the filmstrip come and go.
+const MODES = ["rgb", "act", "pca", "chan"];
+function cycleMode() {
+  const cur = typeof lockedView === "number" ? "chan" : lockedView;
+  const next = MODES[(MODES.indexOf(cur) + 1) % MODES.length];
+  setView(next === "chan" ? lastChan : next);
 }
 
 // layout picker
@@ -802,7 +872,7 @@ function woundRandom() {
     if (dx*dx + dy*dy < 0.12 * 0.12)
       for (let c = 0; c < C; c++) x[i*C + c] = 0;
   }
-  ripples.push({ x: cx0, y: cy0, t0: performance.now(), col: "255,130,70" });
+  ripples.push({ x: cx0, y: cy0, t0: performance.now(), col: "255,111,145" });
 }
 
 const EXPERIMENTS = [
@@ -834,7 +904,8 @@ EXPERIMENTS.forEach((ex, k) => {
   b.title = ex.desc;
   const n = document.createElement("span"); n.className = "enum"; n.textContent = ex.num;
   const t1 = document.createElement("span"); t1.className = "ename"; t1.textContent = ex.name;
-  b.append(n, t1);
+  const t2 = document.createElement("span"); t2.className = "edesc"; t2.textContent = ex.desc;
+  b.append(n, t1, t2);
   b.onclick = () => runExperiment(k);
   ex.btn = b;
   expsEl.appendChild(b);
@@ -891,15 +962,15 @@ window.addEventListener("keydown", e => {
   if (e.code === "Space") { e.preventDefault(); setRunning(!running); }
   else if (e.key === "r") seed();
   else if (e.key === "k") x.fill(0);
-  else if (e.key === "g") { const g = $("ghost"); g.checked = !g.checked; showGhost = g.checked; }
-  else if (e.key === "v") {
-    const i = VIEWS.findIndex(v => v.id === view);
-    setView(VIEWS[(i + 1) % VIEWS.length].id);
-  }
+  else if (e.key === "g") showGhost = !showGhost;
+  else if (e.key === "v") cycleMode();
   else if (e.key === "l") {
     const i = LAYOUTS.findIndex(l => l.id === layout);
     setLayout(LAYOUTS[(i + 1) % LAYOUTS.length].id);
   }
+  else if (e.key === "ArrowLeft") { e.preventDefault(); stepChannel(-1); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); stepChannel(1); }
+  else if (e.key === "Escape" && typeof lockedView === "number") setView("rgb");
   else if (e.key >= "1" && e.key <= "5") runExperiment(+e.key - 1);
   else if (e.key === "e") cutRandom(0.2);
   else if (e.key === "E") restoreEdges();
