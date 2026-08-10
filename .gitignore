@@ -15,3 +15,5 @@ nohup.out
 .DS_Store
 
 # web demo bundle is generated from checkpoints
+*.pt
+*.log
