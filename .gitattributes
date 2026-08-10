@@ -1,0 +1,2 @@
+# export_web.py writes these; they are weights, not source
+web/bundle*.js linguist-generated=true

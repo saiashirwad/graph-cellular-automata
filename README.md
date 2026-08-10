@@ -1,165 +1,153 @@
 # Graph cellular automata
 
-A small mashup of graph neural networks and Distill.pub's
-[Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca). The
-CA lives on a random graph instead of a grid, and grows a pattern from one
-seed node.
+Distill's [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca),
+but on a random graph instead of a grid.
 
-## What it looks like
+One seed node grows into the whole pattern, using nothing but messages passed
+between neighbors.
 
 | Target | Rollout |
 |---|---|
 | ![target](target.png) | ![growth](growth.gif) |
 
-On the left, the target sampled at the graph's node positions. On the right,
-the trained CA growing it from a single seed node, using nothing but messages
-between neighbors.
+## Try it
 
-## The idea
+```sh
+uv venv && uv pip install torch numpy matplotlib pillow trackio
+uv run python -u train.py --steps 10000 --tag _dmg
+```
 
-A grid CA is a special case of a GNN, with a fixed lattice and a hand-written
-message function. Relax both:
+About two hours on an M-series Mac. Keep the `-u`, or the log stays empty
+until the run exits.
+
+Then render it, or open the browser demo:
+
+```sh
+uv run python train.py --animate --tag _dmg   # writes growth.gif
+uv run python export_web.py                   # writes web/bundle.js
+open web/index.html
+```
+
+## How it works
+
+A grid CA is already a GNN, just with a fixed lattice and a hand-written rule.
+Relax both:
 
 | | neighborhood | rule |
 |---|---|---|
 | classic CA | fixed grid | hand-written |
 | Neural CA (Distill) | fixed grid (Sobel conv) | learned MLP |
-| Graph NCA (this repo) | arbitrary graph (message passing) | learned MLP |
+| Graph NCA (this repo) | any graph (message passing) | learned MLP |
 
-Each node holds a 16-dim state, RGB plus alpha plus 12 hidden channels.
-Perception is GNN-style aggregation. Each node sees `[own state,
-mean(neighbors), mean(neighbors - own)]`. A tiny shared MLP proposes a
-residual update, and a random per-node mask keeps updates asynchronous, so no
-node can rely on a global clock. Training follows the growing-NCA recipe: a
-sample pool, random-length rollouts, MSE on RGBA against the target, and
-alive-masking by max-pooling alpha over graph neighbors.
+Each node holds 16 numbers: RGB, alpha, and 12 hidden channels.
 
-Related work: [Learning Graph Cellular Automata](https://arxiv.org/abs/2110.14237)
-(Grattarola et al., NeurIPS 2021),
-[Mesh Neural CA](https://meshnca.github.io/) (2023),
-[E(n)-equivariant GNCA](https://arxiv.org/abs/2301.10497) (2023).
+Every step, a node looks at three things, its own state, the mean of its
+neighbors, and the mean difference to its neighbors. A small shared MLP turns
+that into an update. A random mask skips about half the nodes each step, so
+nothing can depend on a global clock.
 
-## Regeneration
+The rest is the growing-NCA recipe. A sample pool, rollouts of random length,
+MSE on RGBA against the target, and alive-masking by max-pooling alpha over
+neighbors.
 
-Growing a pattern and healing a broken one are different skills. A model
-trained only to grow does reach the target, but the basin around it is narrow.
-Punch a hole in a finished heart and it refills about two thirds of the way,
-stalls, then decays.
+Prior work: [Learning Graph Cellular Automata](https://arxiv.org/abs/2110.14237)
+(NeurIPS 2021), [Mesh Neural CA](https://meshnca.github.io/),
+[E(n)-equivariant GNCA](https://arxiv.org/abs/2301.10497).
 
-The fix comes from Distill's "learning to regenerate" experiment. Train on
-broken patterns directly. Every step, training sorts the batch by starting
-loss and wrecks the three *best* samples, zeroing all 16 channels on the nodes
-it hits. Hitting the best ones is the whole trick. The point is to widen the
-basin around the finished pattern, and gradient spent on an already-ruined
-state teaches nothing.
+## Healing
 
-Damage comes in two shapes, both of which make sense on a graph rather than a
-grid. A ball wipes out 20 to 50% of the pattern around a random node, and
-takes two of the three samples. The third gets scattered damage, a random
-quarter of the pattern nodes with no shape at all.
+Growing and healing turn out to be different skills.
 
-A few smaller changes come with it. Rollouts stretch to 48-80 steps, because a
-healing wavefront needs longer than a growing one. The pool grows to 512
-samples. Noise of sigma 0.02 on the starting state widens the basin and keeps
-gradients from blowing up. A penalty on states leaving [-1, 1] catches the
-runaway that tends to follow damage. All of it switches off with `--damage 0`,
-which gets you the plain growing recipe back.
+A rule trained only to grow does reach the target, but the basin around it is
+narrow. Punch a hole in a finished heart and it refills maybe two thirds of the
+way, stalls, then rots.
 
-Where the recipe comes from: [Growing NCA](https://distill.pub/2020/growing-ca)
-damages 3 of 8 lowest-loss samples,
-[VNCA](https://arxiv.org/abs/2201.12360) damages a quarter of the batch,
-[Self-classifying MNIST](https://distill.pub/2020/selforg/mnist/) adds state
-noise, and [E(n)-GNCA](https://arxiv.org/abs/2301.10497) puts the pool on
-graphs. None of them study *when* to start damaging. They all start at step 0
-with a constant fraction, so this does too.
+So train on broken patterns. Every step, sort the batch by loss and wreck the
+three *best* samples, zeroing all 16 channels wherever the damage lands.
+Hitting the best ones is the trick. The basin worth widening is the one around
+the finished pattern, and a sample that was already ruined teaches nothing.
 
-## Run it (Apple Silicon, uses MPS)
+Two shapes of damage, neither of which a grid could give you:
 
-```sh
-uv venv && uv pip install torch numpy matplotlib pillow trackio
+- a ball around a random node, covering 20 to 50% of the pattern (two samples)
+- a scattered quarter of the pattern nodes, no shape at all (one sample)
 
-uv run python -u train.py --steps 10000 --tag _dmg   # train, roughly 2 h
-uv run python train.py --animate --tag _dmg          # growth.gif from checkpoint
-```
+Smaller things that come with it:
 
-The `-u` matters. Without it Python block-buffers stdout, and a redirected log
-sits empty until the run exits.
+- rollouts of 48 to 80 steps, since healing takes longer than growing
+- a pool of 512
+- noise of 0.02 on the starting state
+- a penalty on states drifting outside [-1, 1]
 
-Metrics go to [trackio](https://huggingface.co/blog/trackio), which runs
-locally, writes SQLite, and needs no account. Watch them in another terminal:
+`--damage 0` turns all of it off and gives you the plain growing rule back.
+
+The recipe is borrowed. [Growing NCA](https://distill.pub/2020/growing-ca)
+damages 3 of 8 samples, [VNCA](https://arxiv.org/abs/2201.12360) damages a
+quarter of the batch, [self-classifying MNIST](https://distill.pub/2020/selforg/mnist/)
+adds the noise, [E(n)-GNCA](https://arxiv.org/abs/2301.10497) puts the pool on
+graphs. None of them study *when* to start damaging, so this starts at step 0
+like they all do.
+
+## Watching a run
 
 ```sh
 uv run trackio show
 ```
 
-Watch `probe_healed` rather than the training loss. Every 1000 steps the probe
-grows the heart, punches a fixed 25% hole, heals for 160 steps, and records the
-error. Training loss can keep falling while regeneration stays broken, which is
-exactly the trap this whole recipe exists to escape. `--no-track` skips all of
-it.
+Watch `probe_healed`, not the loss. Loss can fall for hours while healing stays
+broken, which is the whole trap. Every 1000 steps the probe grows the heart,
+punches a fixed 25% hole, heals for 160 steps, and records the error.
 
-`eval_damage.py` scores one checkpoint against another on four kinds of damage,
-a horizontal band, a ball, a scattered quarter, and one whole half:
+To compare two checkpoints:
 
 ```sh
 uv run python eval_damage.py checkpoint.pt checkpoint_dmg.pt
 ```
 
-It reseeds both the damage regions and the CA's random updates for each
-checkpoint, so the numbers compare models rather than luck. I got this wrong
-the first time and spent a while reading noise as signal.
+Four kinds of damage, a band, a ball, a scattered quarter, and one whole half.
+It reseeds everything per checkpoint so you compare models and not luck. I got
+that wrong at first and spent a while reading noise as signal.
+
+## The browser demo
+
+The forward pass is reimplemented in plain JavaScript. No PyTorch, no server,
+no build step. It matches the Python model to 4.8e-7.
+
+What you can do in it:
+
+- drag to damage cells and watch them regrow
+- cut edges instead of nodes, across the middle or at random, and watch the
+  dynamics cope with a rewired graph
+- switch views (`V`) to see update activity, the alpha channel, or a PCA of the
+  12 hidden channels, which is as close as this gets to an X-ray
+- switch layouts (`L`) between trained positions, a 3-d spectral embedding you
+  can orbit, and a live PCA that arranges nodes by what they are thinking
+- hover a node to see exactly which neighbors it listens to
+
+Plus the usual reseed, pause, clear, speed and brush sliders, and a loss
+sparkline.
 
 ## Files
 
 | | |
 |---|---|
-| `gnca.py` | the model, the graphs (random geometric, Watts-Strogatz), the targets |
-| `train.py` | training, damage augmentation, tracking, rollout gif |
-| `eval_damage.py` | four damage types, alive% and error through healing |
-| `damage.py` | slice the grown heart in half, animate the healing |
-| `topological_damage.py` | cut *edges* instead of nodes and watch it adapt |
-| `hidden_channels.py` | PCA of the 12 hidden channels, the learned morphogens |
-| `export_web.py` | checkpoint to `web/bundle.js` for the browser demo |
-
-## Web demo (browser-only, no server)
-
-After training, export the weights to JSON and open the demo:
-
-```sh
-uv run python export_web.py          # checkpoint.pt -> web/bundle.js
-open web/index.html                  # or double-click it
-```
-
-The whole CA forward pass runs in plain JavaScript. No PyTorch, no server, no
-build step. The canvas gives you:
-
-- drag to damage cells, with a brush cursor and ripple, then watch them regrow
-- reseed, pause, clear (`R`, `Space`, `K`)
-- view modes (`V`): visible RGB, update activity showing where the rule fires,
-  a PCA projection of the hidden channels, the alpha channel, and each of the
-  12 hidden channels on its own
-- topological damage: cut every edge across the middle, or drop 20% at random,
-  with `E` to undo
-- layouts (`L`): the trained 2-d positions, a 3-d spectral embedding of the
-  bare topology that you can drag to orbit, or a live PCA of hidden states that
-  clusters nodes by internal chemistry
-- hover a node to see which neighbors it listens to
-- a strip chart of the seed node's 16 channels over time, and heatmaps of the
-  rule's two weight matrices
-- speed and brush-radius sliders, toggles for the ghost target, edges, and glow
-- step, alive and loss stats, with a loss sparkline
-
-The JS forward pass matches the PyTorch model to 4.8e-7 max absolute error.
+| `gnca.py` | model, graphs, targets |
+| `train.py` | training, damage, tracking, gif |
+| `eval_damage.py` | score a checkpoint on four damage types |
+| `damage.py` | slice the heart in half, animate the healing |
+| `topological_damage.py` | cut edges instead of nodes |
+| `hidden_channels.py` | PCA of the hidden channels |
+| `export_web.py` | checkpoint to `web/bundle.js` |
 
 ## Things to try
 
 - swap `heart_target` in `gnca.py` for your own pattern
-- other graphs: grids with missing edges, small-world rings, trees
-- max aggregation instead of mean, or edge features carrying relative position
-- edge-cut augmentation during training, dropping 10-30% of one sample's edges
-  each step, so the rule survives a rewired world and not only a wounded one
+- other graphs: grids with holes, small-world rings, trees
+- max aggregation instead of mean
+- cut edges during training, not just nodes, so the rule survives a rewired
+  world and not only a wounded one
 
 The result I keep coming back to is that a rule trained on one topology fails
-on every other one, and fails differently on each. It doesn't learn the heart.
-It learns the heart on this graph. That's a failure mode a grid CA cannot have,
-and it's the most interesting thing here.
+on every other one, and fails differently on each. It never learns the heart.
+It learns the heart on this graph. A grid CA cannot fail that way, and I think
+it is the most interesting thing here.
