@@ -31,6 +31,10 @@
 <div id="stage"><canvas id="c" width="600" height="600"></canvas></div>
 <div id="panel">
   <h1>Graph NCA</h1>
+  <select id="model" style="background:#2a2a36;color:var(--txt);border:1px solid #3a3a48;border-radius:6px;padding:6px;font-size:13px;">
+    <option value="heart">Heart on random graph</option>
+    <option value="ring">Rainbow on small-world ring</option>
+  </select>
   <p class="hint">Each node runs one shared learned rule, talking only to its
      graph neighbors. Drag to damage; it regenerates.</p>
   <div class="row">
@@ -54,6 +58,7 @@
   <p class="hint">t = CA steps · alive = % living cells · loss = vs target</p>
 </div>
 <script src="bundle.js"></script>
+<script src="bundle_ws.js"></script>
 <script src="demo.js"></script>
 </body>
 </html>
