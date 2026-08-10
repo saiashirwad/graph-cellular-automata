@@ -19,21 +19,37 @@ p.add_argument("--nodes", type=int, default=1024)
 p.add_argument("--k", type=int, default=8, help="nearest neighbors per node")
 p.add_argument("--channels", type=int, default=16)
 p.add_argument("--steps", type=int, default=8000)
-p.add_argument("--pool", type=int, default=256, help="sample pool size")
+p.add_argument("--pool", type=int, default=512, help="sample pool size")
 p.add_argument("--batch", type=int, default=8)
+p.add_argument("--damage", type=int, default=3,
+               help="samples per batch to damage (0 = off). The best-scoring "
+                    "samples are hit, so the rule learns to heal a grown pattern.")
+p.add_argument("--horizon", type=int, nargs=2, default=[48, 80],
+               help="rollout length range; healing needs longer than growing")
+p.add_argument("--noise", type=float, default=0.02, help="state noise on x0")
+p.add_argument("--overflow", type=float, default=1.0,
+               help="penalty on state magnitude outside [-1, 1]")
+p.add_argument("--tag", default="", help="suffix for checkpoint/gif filenames")
 p.add_argument("--graph", choices=["rgg", "ws"], default="rgg",
                help="rgg: random geometric graph + heart target; "
                     "ws: Watts-Strogatz small-world ring + rainbow target")
 p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
 p.add_argument("--lr", type=float, default=5e-4)
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
+p.add_argument("--track", default=True, action=argparse.BooleanOptionalAction,
+               help="log curves to trackio (`trackio show` to view)")
 args = p.parse_args()
 
-suffix = "" if args.graph == "rgg" else "_ws"
+suffix = ("" if args.graph == "rgg" else "_ws") + args.tag
 CKPT, GIF, TARGET_PNG = f"checkpoint{suffix}.pt", f"growth{suffix}.gif", f"target{suffix}.png"
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 torch.manual_seed(0)
+
+track = None
+if args.track and not args.animate:
+    import trackio as track
+    track.init(project="gnca", name=f"{args.graph}{suffix or '_base'}", config=vars(args))
 
 # ------------------------------------------------------- graph + target ----
 if args.graph == "ws":
@@ -59,6 +75,53 @@ opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 # ---------------------------------------------------------------- pool -----
 pool = seed_state(args.pool, N, args.channels, device, center)
 
+# -------------------------------------------------------------- damage -----
+# Nodes the target actually paints. Damage only makes sense inside the pattern:
+# zeroing empty space is a no-op the rule already handles.
+pattern = np.flatnonzero(target_np[:, 3] > 0.5)
+rng = np.random.default_rng(1)
+
+
+def ball_nodes(c=None, frac=None):
+    """A blob around a pattern node, covering 20-50% of the pattern by default."""
+    c = pattern[rng.integers(len(pattern))] if c is None else c
+    d2 = ((pos - pos[c]) ** 2).sum(1)
+    r2 = np.quantile(d2[pattern], rng.uniform(0.2, 0.5) if frac is None else frac)
+    return np.flatnonzero(d2 <= r2)
+
+
+def scatter_nodes():
+    """A quarter of the pattern, picked at random -- damage with no shape."""
+    return rng.choice(pattern, size=max(1, len(pattern) // 4), replace=False)
+
+
+def damage(xb, n):
+    """Wipe all channels of some nodes in the last n samples of the batch."""
+    for i in range(1, n + 1):
+        nodes = ball_nodes() if i > 1 else scatter_nodes()
+        xb[-i, torch.from_numpy(nodes).to(device)] = 0.0
+
+
+PROBE_BALL = None  # fixed blob, so the probe is comparable across steps and runs
+
+
+def heal_probe(grow=80, heal=160):
+    """Grow, punch a hole, heal. This is the number the whole recipe chases:
+    training loss can fall while regeneration stays broken."""
+    global PROBE_BALL
+    if PROBE_BALL is None:
+        PROBE_BALL = torch.from_numpy(
+            ball_nodes(c=int(pattern[len(pattern) // 2]), frac=0.25)).to(device)
+    with torch.no_grad():
+        x = seed_state(1, N, args.channels, device, center)[0]
+        for _ in range(grow):
+            x = model(x, edges) * alive_mask(x, edges, N)
+        grown = ((x[:, :4] - target) ** 2).mean().item()
+        x[PROBE_BALL] = 0.0
+        for _ in range(heal):
+            x = model(x, edges) * alive_mask(x, edges, N)
+        return grown, ((x[:, :4] - target) ** 2).mean().item()
+
 
 def run_ca(x0, n_steps):
     """Roll out the CA, with pre-step alive masking like the growing NCA."""
@@ -74,12 +137,31 @@ def run_ca(x0, n_steps):
 if not args.animate:
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, args.pool, (args.batch,))
-        x0 = pool[idx].reshape(-1, args.channels).clone()
-        if step % 8 == 0:  # periodically train from the bare seed (long horizons)
-            x0[:N] = seed_state(1, N, args.channels, device, center)[0]
+        xb = pool[idx].clone()                               # (B, N, C)
 
-        x = run_ca(x0, n_steps=np.random.randint(40, 65))
-        loss = F.mse_loss(x.view(args.batch, N, -1)[..., :4], target.expand(args.batch, N, 4))
+        # rank the batch worst-first, so xb[0] is the least-formed pattern and
+        # xb[-1] the most. Damage lands on the best ones: healing a grown heart
+        # is the behavior we want, and gradient on an already-broken state is
+        # spent twice over.
+        with torch.no_grad():
+            start_loss = ((xb[..., :4] - target) ** 2).mean((1, 2))
+        order = start_loss.argsort(descending=True)
+        xb, idx = xb[order], idx[order.cpu()]                # idx lives on cpu
+
+        if step % 8 == 0:  # periodically train from the bare seed (long horizons)
+            xb[0] = seed_state(1, N, args.channels, device, center)[0]
+        if args.damage:
+            damage(xb, args.damage)
+
+        x0 = xb.reshape(-1, args.channels)
+        if args.noise:  # widens the basin and keeps gradients from diverging
+            x0 = x0 + args.noise * torch.randn_like(x0)
+
+        x = run_ca(x0, n_steps=np.random.randint(args.horizon[0], args.horizon[1] + 1))
+        mse = F.mse_loss(x.view(args.batch, N, -1)[..., :4], target.expand(args.batch, N, 4))
+        loss = mse
+        if args.overflow:  # states that run away are the usual failure after damage
+            loss = loss + args.overflow * (x - x.clamp(-1, 1)).abs().mean()
 
         opt.zero_grad()
         loss.backward()
@@ -87,12 +169,19 @@ if not args.animate:
         opt.step()
 
         with torch.no_grad():  # write back to pool; worst sample -> fresh seed
-            xb = x.view(args.batch, N, -1).detach()
-            per_sample = ((xb[..., :4] - target) ** 2).mean((1, 2))
-            xb[per_sample.argmax()] = seed_state(1, N, args.channels, device, center)[0]
-            pool[idx] = xb
+            out = x.view(args.batch, N, -1).detach()
+            per_sample = ((out[..., :4] - target) ** 2).mean((1, 2))
+            out[per_sample.argmax()] = seed_state(1, N, args.channels, device, center)[0]
+            pool[idx] = out
+        if track and step % 20 == 0:
+            track.log({"loss": loss.item(), "mse": mse.item()}, step=step)
         if step % 200 == 0:
-            print(f"step {step:6d}  loss {loss.item():.6f}")
+            print(f"step {step:6d}  loss {loss.item():.6f}  mse {mse.item():.6f}")
+        if step % 1000 == 0:
+            grown, healed = heal_probe()
+            print(f"    probe: grown {grown:.4f}  healed {healed:.4f}")
+            if track:
+                track.log({"probe_grown": grown, "probe_healed": healed}, step=step)
         if step % 2000 == 0:
             torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
                         "edges": edges.cpu(), "channels": args.channels}, CKPT)
@@ -100,6 +189,8 @@ if not args.animate:
     torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
                 "edges": edges.cpu(), "channels": args.channels}, CKPT)
     print(f"saved {CKPT}")
+    if track:
+        track.finish()
 
 # ------------------------------------------------------------ visualize ----
 import os
