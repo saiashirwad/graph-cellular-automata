@@ -2,62 +2,292 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Graph Neural Cellular Automata</title>
 <style>
-  :root { --bg:#0e0e12; --panel:#1a1a22; --txt:#d8d8e0; --accent:#6cf; }
+  :root {
+    --bg:#0a0a0d;
+    --txt:#f2f2f6;
+    --muted:#a0a0ab;
+    --faint:#6b6b76;
+    --line:rgba(255,255,255,.09);
+    --accent:#7aa2f7;
+    --mono:ui-monospace,"SF Mono",SFMono-Regular,Menlo,monospace;
+  }
   * { box-sizing:border-box; margin:0; padding:0; }
-  body { background:var(--bg); color:var(--txt);
-         font:14px/1.4 -apple-system,BlinkMacSystemFont,system-ui,sans-serif;
-         display:flex; height:100vh; }
-  #stage { flex:1; display:flex; align-items:center; justify-content:center; }
-  canvas { background:#000; border-radius:8px; cursor:crosshair; max-width:96%; max-height:96%; }
-  #panel { width:260px; padding:18px; background:var(--panel); display:flex;
-           flex-direction:column; gap:14px; overflow-y:auto; }
-  h1 { font-size:16px; color:var(--accent); }
-  .hint { font-size:12px; color:#888; }
-  button { background:#2a2a36; color:var(--txt); border:1px solid #3a3a48;
-           border-radius:6px; padding:8px; cursor:pointer; font-size:13px; }
-  button:hover { background:#34343f; }
-  .row { display:flex; gap:8px; }
-  .row button { flex:1; }
-  label { font-size:12px; color:#9a9aa8; display:block; margin-bottom:4px; }
-  input[type=range] { width:100%; }
-  #stats { font-size:12px; color:#9a9aa8; font-variant-numeric:tabular-nums; }
-  #stats b { color:var(--accent); }
-  .toggle { display:flex; align-items:center; gap:6px; font-size:12px; }
+  html,body { height:100%; }
+  body {
+    background:var(--bg); color:var(--txt);
+    font:14px/1.55 -apple-system,BlinkMacSystemFont,"SF Pro Text",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; height:100vh; overflow:hidden;
+  }
+
+  /* ---------- header ---------- */
+  header {
+    display:flex; align-items:center; gap:22px; flex-shrink:0;
+    padding:14px 22px; border-bottom:1px solid var(--line);
+  }
+  .brand { line-height:1.25; }
+  .brand h1 { font-size:15px; font-weight:600; letter-spacing:-.01em; }
+  .brand .tag { font-size:12px; color:var(--faint); }
+
+  .seg { display:flex; gap:2px; border:1px solid var(--line); border-radius:8px; padding:2px; }
+  .seg button {
+    font:inherit; font-size:13px; color:var(--muted); background:none; border:none;
+    border-radius:6px; padding:5px 14px; cursor:pointer; transition:color .12s, background .12s;
+  }
+  .seg button:hover { color:var(--txt); }
+  .seg button.active { color:var(--txt); background:rgba(255,255,255,.08); }
+
+  .transport { display:flex; gap:6px; }
+  .transport button {
+    font:inherit; font-size:13px; color:var(--txt);
+    background:none; border:1px solid var(--line); border-radius:7px;
+    padding:6px 14px; cursor:pointer; transition:border-color .12s, color .12s;
+  }
+  .transport button:hover { border-color:rgba(255,255,255,.25); }
+  .transport button#pause { min-width:74px; }
+  .transport button#killall { color:var(--muted); }
+  .transport button#killall:hover { color:#e88; border-color:rgba(238,136,136,.35); }
+
+  #statline {
+    margin-left:auto; display:flex; align-items:center; gap:16px;
+    font-family:var(--mono); font-size:12.5px; color:var(--muted);
+  }
+  #statline b { color:var(--txt); font-weight:500; }
+  #spark { width:110px; height:26px; display:block; }
+
+  /* ---------- main ---------- */
+  main { flex:1; display:flex; min-height:0; }
+  #stage { flex:1; display:flex; align-items:center; justify-content:center; padding:20px; min-width:0; }
+  #wrap { position:relative; width:min(88vmin,840px); aspect-ratio:1; }
+  canvas#c { width:100%; height:100%; display:block; cursor:none; touch-action:none; }
+  #legend {
+    position:absolute; left:2px; bottom:-4px; pointer-events:none;
+    font-size:12px; color:var(--faint);
+  }
+
+  /* ---------- sidebar ---------- */
+  #panel {
+    width:322px; flex-shrink:0; padding:22px;
+    border-left:1px solid var(--line); overflow-y:auto;
+  }
+  .intro { font-size:13px; color:var(--muted); }
+
+  .sect { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+  .sect > h2, summary {
+    font-size:11px; font-weight:600; letter-spacing:.12em; text-transform:uppercase;
+    color:var(--faint); margin-bottom:12px;
+  }
+
+  /* view picker */
+  #viewMain, #layoutMain { display:flex; flex-direction:column; gap:3px; }
+  .vrow {
+    font:inherit; display:flex; justify-content:space-between; align-items:baseline;
+    padding:7px 10px; background:none; border:1px solid transparent; border-radius:8px;
+    cursor:pointer; transition:background .12s, border-color .12s;
+  }
+  .vrow:hover { background:rgba(255,255,255,.04); }
+  .vrow.active { background:rgba(255,255,255,.05); border-color:var(--line); }
+  .vname { font-size:13.5px; color:var(--txt); }
+  .vdesc { font-size:11.5px; color:var(--faint); }
+  .sublabel { font-size:12px; color:var(--faint); margin:12px 0 7px; }
+  #viewChans { display:flex; flex-wrap:wrap; gap:5px; }
+  #viewChans .chip {
+    font-family:var(--mono); font-size:11px; color:var(--muted);
+    min-width:27px; padding:4px 0; text-align:center;
+    background:none; border:1px solid var(--line); border-radius:6px;
+    cursor:pointer; transition:color .12s, border-color .12s;
+  }
+  #viewChans .chip:hover { color:var(--txt); }
+  #viewChans .chip.active { color:var(--txt); border-color:var(--accent); }
+  #viewCap { font-size:12px; color:var(--muted); margin-top:12px; min-height:2.8em; }
+
+  /* display controls */
+  .toggle {
+    display:flex; align-items:center; justify-content:space-between;
+    font-size:13.5px; color:var(--muted); cursor:pointer; padding:5px 0;
+    -webkit-user-select:none; user-select:none;
+  }
+  .toggle:hover { color:var(--txt); }
+  .toggle input { display:none; }
+  .toggle .sw {
+    width:28px; height:16px; border-radius:9px; position:relative;
+    background:rgba(255,255,255,.13); transition:background .15s;
+  }
+  .toggle .sw::after {
+    content:""; position:absolute; width:12px; height:12px; border-radius:50%;
+    background:#c6c6ce; top:2px; left:2px; transition:transform .15s, background .15s;
+  }
+  .toggle input:checked + .sw { background:rgba(122,162,247,.5); }
+  .toggle input:checked + .sw::after { transform:translateX(12px); background:#fff; }
+
+  .ctrl { margin-top:14px; }
+  .ctrl label { font-size:13px; color:var(--muted); display:flex; justify-content:space-between; margin-bottom:8px; }
+  .ctrl label span { color:var(--txt); font-family:var(--mono); font-size:12px; }
+  input[type=range] {
+    -webkit-appearance:none; appearance:none; width:100%; height:2px;
+    background:linear-gradient(90deg,#9a9aa5 var(--fill,50%), rgba(255,255,255,.14) var(--fill,50%));
+    border-radius:1px; outline:none; cursor:pointer;
+  }
+  input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance:none; appearance:none; width:12px; height:12px; border-radius:50%;
+    background:var(--txt); border:none;
+  }
+  input[type=range]::-moz-range-thumb {
+    width:12px; height:12px; border-radius:50%; background:var(--txt); border:none;
+  }
+
+  /* topology */
+  .cap { font-size:12px; color:var(--muted); margin-bottom:10px; }
+  .row { display:flex; gap:6px; }
+  .row + .row { margin-top:6px; }
+  .row button {
+    flex:1; font:inherit; font-size:12.5px; color:var(--txt);
+    background:none; border:1px solid var(--line); border-radius:7px;
+    padding:6px 0; cursor:pointer; transition:border-color .12s;
+  }
+  .row button:hover { border-color:rgba(255,255,255,.25); }
+
+  /* analysis */
+  details { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); }
+  summary { cursor:pointer; list-style:none; display:flex; justify-content:space-between; margin-bottom:0; }
+  summary::-webkit-details-marker { display:none; }
+  summary::after { content:"+"; font-family:var(--mono); font-size:12px; }
+  details[open] summary::after { content:"\2212"; }
+  details[open] summary { margin-bottom:12px; }
+  summary:hover { color:var(--muted); }
+  .mat { width:100%; display:block; image-rendering:pixelated; border-radius:3px; }
+  #trace { height:56px; }
+  .wcap { font-size:12px; color:var(--muted); margin-top:7px; }
+  .wcap + .mat { margin-top:14px; }
+
+  .keys { margin-top:24px; padding-top:16px; border-top:1px solid var(--line);
+          font-family:var(--mono); font-size:11px; color:var(--faint); line-height:1.8; }
+
+  a { color:inherit; text-decoration:underline;
+      text-decoration-color:rgba(255,255,255,.25); text-underline-offset:2px; }
+  a:hover { color:var(--txt); }
+
+  @media (max-width:900px) {
+    body { overflow:auto; }
+    header { flex-wrap:wrap; gap:12px; }
+    #statline { margin-left:0; width:100%; }
+    main { flex-direction:column; }
+    #wrap { width:min(92vw,92vh); }
+    #panel { width:auto; border-left:none; border-top:1px solid var(--line); }
+  }
 </style>
 </head>
 <body>
-<div id="stage"><canvas id="c" width="600" height="600"></canvas></div>
-<div id="panel">
-  <h1>Graph NCA</h1>
-  <select id="model" style="background:#2a2a36;color:var(--txt);border:1px solid #3a3a48;border-radius:6px;padding:6px;font-size:13px;">
-    <option value="heart">Heart on random graph</option>
-    <option value="ring">Rainbow on small-world ring</option>
-  </select>
-  <p class="hint">Each node runs one shared learned rule, talking only to its
-     graph neighbors. Drag to damage; it regenerates.</p>
-  <div class="row">
-    <button id="reset">↺ Reseed</button>
-    <button id="pause">⏸ Pause</button>
+
+<header>
+  <div class="brand">
+    <h1>Graph Neural CA</h1>
+    <div class="tag">a cellular automaton on an arbitrary graph</div>
   </div>
-  <button id="killall">Kill everything</button>
-  <div>
-    <label>Speed: steps/frame <span id="spdV">2</span></label>
-    <input type="range" id="spd" min="1" max="8" value="2">
+  <div id="models" class="seg">
+    <button data-model="heart" class="active">Heart</button>
+    <button data-model="ring">Rainbow ring</button>
   </div>
-  <div>
-    <label>Brush radius <span id="brV">0.08</span></label>
-    <input type="range" id="br" min="2" max="40" value="8">
+  <div class="transport">
+    <button id="reset">Reseed</button>
+    <button id="pause">Pause</button>
+    <button id="killall">Clear</button>
   </div>
-  <div class="toggle">
-    <input type="checkbox" id="ghost" checked>
-    <label for="ghost" style="margin:0">Show target (ghost)</label>
+  <div id="statline">
+    <span>t <b id="stT">0</b></span>
+    <span>alive <b id="stA">0%</b></span>
+    <span>loss <b id="stL">–</b></span>
+    <canvas id="spark"></canvas>
   </div>
-  <div id="stats"></div>
-  <p class="hint">t = CA steps · alive = % living cells · loss = vs target</p>
-</div>
+</header>
+
+<main>
+  <div id="stage">
+    <div id="wrap">
+      <canvas id="c"></canvas>
+      <div id="legend"></div>
+    </div>
+  </div>
+
+  <aside id="panel">
+    <p class="intro">Every node runs the same learned rule and talks only to its
+       graph neighbors. From a single seed it grows the target pattern &mdash;
+       and heals if you drag across it.</p>
+
+    <div class="sect">
+      <h2>Layout</h2>
+      <div id="layoutMain"></div>
+      <div id="layoutCap" class="cap" style="margin:12px 0 0"></div>
+    </div>
+
+    <div class="sect">
+      <h2>View</h2>
+      <div id="viewMain"></div>
+      <div class="sublabel">Single channel</div>
+      <div id="viewChans"></div>
+      <div id="viewCap"></div>
+    </div>
+
+    <div class="sect">
+      <h2>Display</h2>
+      <label class="toggle">Target ghost <input type="checkbox" id="ghost" checked><span class="sw"></span></label>
+      <label class="toggle">Graph edges <input type="checkbox" id="edges" checked><span class="sw"></span></label>
+      <label class="toggle">Glow <input type="checkbox" id="glow" checked><span class="sw"></span></label>
+      <div class="ctrl">
+        <label>Speed <span id="spdV">2 steps / frame</span></label>
+        <input type="range" id="spd" min="1" max="8" value="2">
+      </div>
+      <div class="ctrl">
+        <label>Brush radius <span id="brV">0.08</span></label>
+        <input type="range" id="br" min="2" max="40" value="8">
+      </div>
+    </div>
+
+    <div class="sect">
+      <h2>Topology</h2>
+      <p class="cap">Surgery on the graph itself &mdash; the rule keeps running
+         on whatever remains.</p>
+      <div class="row">
+        <button id="cutSpatial">Cut in half</button>
+        <button id="cutRandom">Drop 20%</button>
+      </div>
+      <div class="row">
+        <button id="restoreEdges">Restore all edges</button>
+      </div>
+    </div>
+
+    <details open>
+      <summary>Seed node history</summary>
+      <canvas id="trace" class="mat"></canvas>
+      <p class="wcap">Each row is one of the seed node&rsquo;s 16 channels, time
+         running left to right. It settles into a stable chemical fingerprint.</p>
+    </details>
+
+    <details>
+      <summary>The rule&rsquo;s weights</summary>
+      <canvas id="w1" class="mat"></canvas>
+      <p class="wcap">W&#8321; &mdash; how the 128 hidden units (columns) read the
+         48 inputs: own state, neighbor mean, difference (row blocks).</p>
+      <canvas id="w2" class="mat"></canvas>
+      <p class="wcap">W&#8322; &mdash; how those hidden units write the 16 state
+         updates; top block is rgb&alpha;.</p>
+    </details>
+
+    <div class="keys">
+      space pause &middot; r reseed &middot; k clear &middot; v view &middot;
+      l layout &middot; e cut edges &middot; E restore<br>
+      after Distill&rsquo;s <a href="https://distill.pub/2020/growing-ca"
+      target="_blank" rel="noopener">Growing Neural CA</a> &mdash; runs entirely
+      in your browser
+    </div>
+  </aside>
+</main>
+
 <script src="bundle.js"></script>
+<script src="pca.js"></script>
 <script src="bundle_ws.js"></script>
 <script src="demo.js"></script>
 </body>

@@ -17,3 +17,6 @@ nohup.out
 # web demo bundle is generated from checkpoints
 *.pt
 *.log
+.wrangler/
+pca_weights.npz
+wrangler.toml
