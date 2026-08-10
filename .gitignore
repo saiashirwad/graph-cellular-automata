@@ -1,0 +1,15 @@
+# Python
+__pycache__/
+*.pyc
+
+# Virtualenv
+.venv/
+
+# Training artifacts
+checkpoint.pt
+train.log
+snapshots/
+nohup.out
+
+# macOS
+.DS_Store
