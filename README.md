@@ -10,23 +10,24 @@ Live demo: **[gca.texoport.in](https://gca.texoport.in/)**
 
 | Target | Rollout |
 |---|---|
-| ![target](target.png) | ![growth](growth.gif) |
+| ![target](docs/media/target.png) | ![growth](docs/media/growth.gif) |
 
 ## Try it
 
 ```sh
-uv venv && uv pip install torch numpy matplotlib pillow trackio
-uv run python -u train.py --steps 10000 --tag _dmg
+uv sync
+uv run python -u scripts/train.py --steps 10000 --tag _dmg
 ```
 
 About two hours on an M-series Mac. Keep the `-u`, or the log stays empty
-until the run exits.
+until the run exits. Checkpoints and logs land in `runs/`, gifs in
+`docs/media/`.
 
 Then render it, or open the browser demo:
 
 ```sh
-uv run python train.py --animate --tag _dmg   # writes growth.gif
-uv run python export_web.py                   # writes web/bundle.js
+uv run python scripts/train.py --animate --tag _dmg
+uv run python scripts/export_web.py            # writes web/bundle.js
 open web/index.html
 ```
 
@@ -103,12 +104,19 @@ punches a fixed 25% hole, heals for 160 steps, and records the error.
 To compare two checkpoints:
 
 ```sh
-uv run python eval_damage.py checkpoint.pt checkpoint_dmg.pt
+uv run python scripts/eval_damage.py runs/checkpoint.pt runs/checkpoint_dmg.pt
 ```
 
 Four kinds of damage, a band, a ball, a scattered quarter, and one whole half.
-It reseeds everything per checkpoint so you compare models and not luck. I got
-that wrong at first and spent a while reading noise as signal.
+Every damage shape gets its own seed and the model's random updates are reseeded
+per checkpoint, so you compare models and not luck. I got that wrong twice, once
+by not seeding at all and once by sharing one generator across shapes, where
+adding a damage type silently moved the others.
+
+Trained on damage, healing error drops from 0.124 to 0.005 on a band cut and
+from 0.163 to 0.005 on scattered damage. Growth improves too, 0.024 against
+0.083. Note that MPS gives a noise floor of a few thousandths, since
+`index_add_` uses atomics and the summation order varies run to run.
 
 ## The browser demo
 
@@ -136,17 +144,23 @@ sparkline.
 
 | | |
 |---|---|
-| `gnca.py` | model, graphs, targets |
-| `train.py` | training, damage, tracking, gif |
-| `eval_damage.py` | score a checkpoint on four damage types |
-| `damage.py` | slice the heart in half, animate the healing |
-| `topological_damage.py` | cut edges instead of nodes |
-| `hidden_channels.py` | PCA of the hidden channels |
-| `export_web.py` | checkpoint to `web/bundle.js` |
+| `src/gnca/model.py` | the update rule and the alive mask |
+| `src/gnca/graphs.py` | random geometric and Watts-Strogatz graphs |
+| `src/gnca/targets.py` | the heart and the ring |
+| `src/gnca/damage.py` | every way to break a pattern, shared by all of the below |
+| `scripts/train.py` | training, damage augmentation, tracking |
+| `scripts/eval_damage.py` | score a checkpoint on four damage types |
+| `scripts/export_web.py` | checkpoint to `web/bundle.js` |
+| `scripts/render/` | the gifs: damage, topological damage, hidden channels |
+| `runs/` | checkpoints and logs, gitignored |
+
+`src/gnca/damage.py` is the one worth knowing about. Ball, band, scatter, half
+and the edge cuts used to be written out separately in each script, so the eval
+only measured what training optimized by coincidence.
 
 ## Things to try
 
-- swap `heart_target` in `gnca.py` for your own pattern
+- swap `heart_target` in `src/gnca/targets.py` for your own pattern
 - other graphs: grids with holes, small-world rings, trees
 - max aggregation instead of mean
 - cut edges during training, not just nodes, so the rule survives a rewired

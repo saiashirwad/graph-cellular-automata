@@ -6,14 +6,19 @@ Saves topological_damage.gif.
 This is the graph-native version of the pixel-damage demo: instead of killing
 nodes, we sever edges. The pattern must cope with a rewired neighborhood.
 """
-import argparse, os
+import argparse
+import os
+
 os.environ.pop("MPLBACKEND", None)
 import numpy as np
 import torch
 
 from gnca import GraphNCA, alive_mask, seed_state
+from gnca import damage as dmg
 
 p = argparse.ArgumentParser()
+p.add_argument("--ckpt", default="runs/checkpoint.pt")
+p.add_argument("--out", default="docs/media/topological_damage.gif")
 p.add_argument("--mode", choices=["spatial", "random"], default="spatial",
                help="spatial: cut edges crossing a horizontal line; "
                     "random: delete a fraction of all edges")
@@ -22,7 +27,7 @@ p.add_argument("--cut", type=float, default=0.4,
 args = p.parse_args()
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load("checkpoint.pt", weights_only=False)
+ckpt = torch.load(args.ckpt, weights_only=False)
 pos, edges = ckpt["pos"], ckpt["edges"].to(device)
 C, N = ckpt["channels"], pos.shape[0]
 model = GraphNCA(channels=C).to(device)
@@ -35,15 +40,10 @@ GROW, ADAPT = 80, 160
 # ---- determine which edges to cut ----
 edges_np = ckpt["edges"].numpy()
 if args.mode == "spatial":
-    y_cut = args.cut  # horizontal line
-    pos_np = pos
-    # keep edge if both endpoints are on the same side of the line
-    same_side = ((pos_np[edges_np[0], 1] < y_cut) == (pos_np[edges_np[1], 1] < y_cut))
-    keep_mask = same_side
-    cut_desc = f"cut all edges crossing y={y_cut:.2f}"
+    keep_mask = dmg.cut_across(pos, edges_np, args.cut)
+    cut_desc = f"cut all edges crossing y={args.cut:.2f}"
 else:
-    rng = np.random.default_rng(42)
-    keep_mask = rng.random(edges_np.shape[1]) >= args.cut
+    keep_mask = dmg.cut_random(edges_np, args.cut, np.random.default_rng(42))
     cut_desc = f"removed {args.cut:.0%} of edges"
 n_cut = (~keep_mask).sum()
 print(f"{cut_desc}: {n_cut} of {edges_np.shape[1]} edges removed "
@@ -71,6 +71,7 @@ with torch.no_grad():
 
 # ---- animate ----
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
@@ -98,5 +99,5 @@ def draw(i):
     ax.axis("off")
 
 anim = FuncAnimation(fig, draw, frames=len(frames), interval=60)
-anim.save("topological_damage.gif", writer=PillowWriter(fps=16))
-print(f"saved topological_damage.gif ({len(frames)} frames)")
+anim.save(args.out, writer=PillowWriter(fps=16))
+print(f"saved {args.out} ({len(frames)} frames)")

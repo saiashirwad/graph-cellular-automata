@@ -1,18 +1,22 @@
 """Export a trained checkpoint into a browser-loadable bundle (web/bundle.js).
 
-    uv run python export_web.py [checkpoint.pt]
-    uv run python export_web.py checkpoint_dmg.pt --out web/bundle_dmg.js \
-        --var BUNDLE_DMG            # a second model, side by side in the demo
+    uv run python scripts/export_web.py [runs/checkpoint.pt]
+    uv run python scripts/export_web.py runs/checkpoint_dmg.pt \
+        --out web/bundle_dmg.js --var BUNDLE_DMG   # a second model in the demo
 
 Writes a JS file:  const BUNDLE = { n, channels, pos, csr_off, csr_src,
                                     w1, b1, w2, seed, target, alive_alpha_idx }
 Pure JS reads this -- no server, no build step, just open web/index.html.
 """
-import argparse, json, os
-import numpy as np, torch
+import argparse
+import json
+import os
+
+import numpy as np
+import torch
 
 p = argparse.ArgumentParser()
-p.add_argument("checkpoint", nargs="?", default="checkpoint.pt")
+p.add_argument("checkpoint", nargs="?", default="runs/checkpoint.pt")
 p.add_argument("--out", default="web/bundle.js")
 p.add_argument("--var", default="BUNDLE", help="the const the JS file declares")
 a = p.parse_args()

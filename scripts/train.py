@@ -1,18 +1,28 @@
 """Train a Graph NCA to grow a heart on a random graph, from one seed node.
 
-    uv run python train.py                # train (~10-20 min on M-series)
-    uv run python train.py --steps 500    # quick smoke run
-    uv run python train.py --animate      # rollout gif from checkpoint
+    uv run python -u scripts/train.py                # train (~2 h on M-series)
+    uv run python -u scripts/train.py --steps 500    # quick smoke run
+    uv run python scripts/train.py --animate         # rollout gif from checkpoint
 
-Checkpoints -> checkpoint.pt, snapshots -> snapshots/, gif -> growth.gif
+Checkpoints -> runs/, gifs -> docs/media/, metrics -> trackio.
 """
 import argparse
+import os
+
 import numpy as np
 import torch
 import torch.nn.functional as F
 
-from gnca import (GraphNCA, random_geometric_graph, watts_strogatz_graph,
-                  heart_target, ring_target, alive_mask, seed_state)
+from gnca import (
+    GraphNCA,
+    alive_mask,
+    heart_target,
+    random_geometric_graph,
+    ring_target,
+    seed_state,
+    watts_strogatz_graph,
+)
+from gnca import damage as dmg
 
 p = argparse.ArgumentParser()
 p.add_argument("--nodes", type=int, default=1024)
@@ -41,7 +51,10 @@ p.add_argument("--track", default=True, action=argparse.BooleanOptionalAction,
 args = p.parse_args()
 
 suffix = ("" if args.graph == "rgg" else "_ws") + args.tag
-CKPT, GIF, TARGET_PNG = f"checkpoint{suffix}.pt", f"growth{suffix}.gif", f"target{suffix}.png"
+os.makedirs("runs", exist_ok=True)
+os.makedirs("docs/media", exist_ok=True)
+CKPT = f"runs/checkpoint{suffix}.pt"
+GIF, TARGET_PNG = f"docs/media/growth{suffix}.gif", f"docs/media/target{suffix}.png"
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 torch.manual_seed(0)
@@ -76,29 +89,19 @@ opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 pool = seed_state(args.pool, N, args.channels, device, center)
 
 # -------------------------------------------------------------- damage -----
-# Nodes the target actually paints. Damage only makes sense inside the pattern:
-# zeroing empty space is a no-op the rule already handles.
-pattern = np.flatnonzero(target_np[:, 3] > 0.5)
+pattern = dmg.pattern_nodes(target_np)
 rng = np.random.default_rng(1)
 
 
-def ball_nodes(c=None, frac=None):
-    """A blob around a pattern node, covering 20-50% of the pattern by default."""
-    c = pattern[rng.integers(len(pattern))] if c is None else c
-    d2 = ((pos - pos[c]) ** 2).sum(1)
-    r2 = np.quantile(d2[pattern], rng.uniform(0.2, 0.5) if frac is None else frac)
-    return np.flatnonzero(d2 <= r2)
-
-
-def scatter_nodes():
-    """A quarter of the pattern, picked at random -- damage with no shape."""
-    return rng.choice(pattern, size=max(1, len(pattern) // 4), replace=False)
-
-
 def damage(xb, n):
-    """Wipe all channels of some nodes in the last n samples of the batch."""
+    """Wipe all channels of some nodes in the last n samples of the batch.
+
+    One sample gets scattered damage, the rest get balls covering 20-50% of
+    the pattern.
+    """
     for i in range(1, n + 1):
-        nodes = ball_nodes() if i > 1 else scatter_nodes()
+        nodes = (dmg.ball(pos, pattern, frac=rng.uniform(0.2, 0.5), rng=rng)
+                 if i > 1 else dmg.scatter(pattern, rng=rng))
         xb[-i, torch.from_numpy(nodes).to(device)] = 0.0
 
 
@@ -110,8 +113,8 @@ def heal_probe(grow=80, heal=160):
     training loss can fall while regeneration stays broken."""
     global PROBE_BALL
     if PROBE_BALL is None:
-        PROBE_BALL = torch.from_numpy(
-            ball_nodes(c=int(pattern[len(pattern) // 2]), frac=0.25)).to(device)
+        PROBE_BALL = torch.from_numpy(dmg.ball(
+            pos, pattern, frac=0.25, center=int(pattern[len(pattern) // 2]))).to(device)
     with torch.no_grad():
         x = seed_state(1, N, args.channels, device, center)[0]
         for _ in range(grow):
@@ -194,8 +197,10 @@ if not args.animate:
 
 # ------------------------------------------------------------ visualize ----
 import os
+
 os.environ.pop("MPLBACKEND", None)  # don't inherit a notebook backend
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter

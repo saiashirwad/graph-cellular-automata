@@ -1,10 +1,12 @@
 """Visualize the 12 hidden channels as "morphogen fields" via PCA -> RGB.
 
-    uv run python hidden_channels.py
-Saves hidden_channels.gif: a side-by-side of the grown RGBA pattern and the
-PCA-projected hidden chemistry at each step.
+    uv run python scripts/render/hidden_channels.py
+Saves docs/media/hidden_channels.gif: a side-by-side of the grown RGBA pattern
+and the PCA-projected hidden chemistry at each step.
 """
+import argparse
 import os
+
 os.environ.pop("MPLBACKEND", None)
 import numpy as np
 import torch
@@ -12,8 +14,15 @@ from sklearn.decomposition import PCA
 
 from gnca import GraphNCA, alive_mask, seed_state
 
+p = argparse.ArgumentParser()
+p.add_argument("--ckpt", default="runs/checkpoint.pt")
+p.add_argument("--out", default="docs/media/hidden_channels.gif")
+p.add_argument("--weights", default="runs/pca_weights.npz",
+               help="PCA basis, read by the web demo's hidden-channel view")
+args = p.parse_args()
+
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load("checkpoint.pt", weights_only=False)
+ckpt = torch.load(args.ckpt, weights_only=False)
 pos, edges = ckpt["pos"], ckpt["edges"].to(device)
 target = ckpt["target"]
 C, N = ckpt["channels"], pos.shape[0]
@@ -58,6 +67,7 @@ with torch.no_grad():
 
 # ---- animate side by side ----
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
@@ -80,12 +90,12 @@ def draw(i):
     ax2.set_title("hidden channels (PCA → RGB)")
 
 anim = FuncAnimation(fig, draw, frames=len(rgba_frames), interval=60)
-anim.save("hidden_channels.gif", writer=PillowWriter(fps=16))
-print("saved hidden_channels.gif")
+anim.save(args.out, writer=PillowWriter(fps=16))
+print(f"saved {args.out}")
 
 # save PCA matrix for the web demo (3 x 12) + normalization stats
-np.savez("pca_weights.npz",
+np.savez(args.weights,
          components=pca.components_,     # (3, 12)
          mean=pca.mean_,                 # (12,)
          scale=pca.explained_variance_ ** 0.5)  # (12,) rough per-component scale
-print("saved pca_weights.npz for web export")
+print(f"saved {args.weights} for web export")

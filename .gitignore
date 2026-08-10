@@ -1,22 +1,17 @@
 # Python
 __pycache__/
 *.pyc
-
-# Virtualenv
 .venv/
 
-# Training artifacts
-checkpoint.pt
-train.log
-snapshots/
+# Training artifacts: checkpoints, logs, trackio's database
+runs/
+*.pt
+*.log
 nohup.out
+
+# Local deploy state
+.wrangler/
+wrangler.toml
 
 # macOS
 .DS_Store
-
-# web demo bundle is generated from checkpoints
-*.pt
-*.log
-.wrangler/
-pca_weights.npz
-wrangler.toml

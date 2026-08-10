@@ -1,0 +1,54 @@
+"""The update rule: one shared MLP applied to every node, Distill-NCA style."""
+import torch
+from torch import nn
+
+
+class GraphNCA(nn.Module):
+    """One shared update rule applied to every node, Distill-NCA style.
+
+    Perception (message passing): each node sees
+        [ own state, mean of neighbor states, mean of (neighbor - own) ]
+    Update: tiny MLP -> residual increment, applied stochastically.
+    """
+
+    def __init__(self, channels=16, hidden=128):
+        super().__init__()
+        self.channels = channels
+        self.net = nn.Sequential(
+            nn.Linear(3 * channels, hidden), nn.ReLU(),
+            nn.Linear(hidden, channels, bias=False),
+        )
+        # zero-init the last layer: initial rule is the identity
+        nn.init.zeros_(self.net[-1].weight)
+
+    def forward(self, x, edge_index, update_rate=0.5):
+        """x: (B*N, C) node states for a batch of B copies of the graph."""
+        src, dst = edge_index[0], edge_index[1]
+        n = x.shape[0]
+        mean_n = torch.zeros_like(x).index_add_(0, dst, x[src])
+        deg = torch.zeros(n, 1, device=x.device, dtype=x.dtype)
+        deg.index_add_(0, dst, torch.ones(src.shape[0], 1, device=x.device, dtype=x.dtype))
+        mean_n = mean_n / deg.clamp(min=1)
+        mean_diff = torch.zeros_like(x).index_add_(0, dst, x[src] - x[dst]) / deg.clamp(min=1)
+
+        z = torch.cat([x, mean_n, mean_diff], dim=-1)
+        dx = self.net(z)
+
+        # stochastic per-node update (classic NCA trick for async robustness)
+        mask = (torch.rand(n, 1, device=x.device) < update_rate).to(x.dtype)
+        return x + dx * mask
+
+
+def alive_mask(x, edge_index, n_nodes, threshold=0.1):
+    """Node lives if it or any neighbor has alpha > threshold (graph 3x3 mask)."""
+    alpha = x[:, 3:4]
+    neigh_max = torch.full_like(alpha, -1e9)
+    neigh_max.index_reduce_(0, edge_index[1], alpha[edge_index[0]], "amax", include_self=True)
+    return (torch.maximum(alpha, neigh_max) > threshold).to(x.dtype)
+
+
+def seed_state(batch, n_nodes, channels, device, center=0):
+    """All-empty states except one 'seed' node (usually nearest pattern center)."""
+    x = torch.zeros(batch, n_nodes, channels, device=device)
+    x[:, center, 3:] = 1.0
+    return x

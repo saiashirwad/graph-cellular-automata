@@ -1,56 +1,50 @@
 """Score a checkpoint on four kinds of damage: grow, break, watch it heal.
 
-    uv run python eval_damage.py checkpoint.pt checkpoint_dmg.pt
+    uv run python scripts/eval_damage.py runs/checkpoint.pt runs/checkpoint_dmg.pt
 
 Prints, for each damage type, the alive% and RGBA MSE at the end of growth,
 right after the hit, and through healing. One row per checkpoint so a
 damage-trained rule can be compared against the plain one.
 """
 import argparse
+
 import numpy as np
 import torch
 
 from gnca import GraphNCA, alive_mask, seed_state
+from gnca import damage as dmg
 
 p = argparse.ArgumentParser()
-p.add_argument("ckpts", nargs="*", default=["checkpoint.pt"])
+p.add_argument("ckpts", nargs="*", default=["runs/checkpoint.pt"])
 p.add_argument("--grow", type=int, default=80)
 p.add_argument("--heal", type=int, default=160)
 p.add_argument("--seed", type=int, default=0)
 args = p.parse_args()
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-rng = np.random.default_rng(args.seed)
 
 
 def damage_sets(pos, target_np):
-    """Node index arrays for each damage type, plus a printable name."""
-    pattern = np.flatnonzero(target_np[:, 3] > 0.5)
-    ppos = pos[pattern]
-    cx, cy = ppos.mean(0)
+    """Node index arrays for each damage type, plus a printable name.
 
-    def ball(frac):
-        c = pattern[rng.integers(len(pattern))]
-        d2 = ((pos - pos[c]) ** 2).sum(1)
-        r2 = np.quantile(d2[pattern], frac)
-        return np.flatnonzero(d2 <= r2)
-
-    band = np.flatnonzero((pos[:, 1] > cy - 0.08) & (pos[:, 1] < cy + 0.08))
-    half = pattern[ppos[:, 0] > cx]
-    scatter = rng.choice(pattern, size=int(0.25 * len(pattern)), replace=False)
+    Each random shape gets its own generator seeded from its position in the
+    list, so adding or reordering a damage type cannot silently move the
+    others. A shared generator did exactly that once already.
+    """
+    pattern = dmg.pattern_nodes(target_np)
+    seeded = lambda k: np.random.default_rng([args.seed, k])
     return [
-        ("band (horizontal slice)", band),
-        ("ball (25% of pattern)", ball(0.25)),
-        ("random 25% of nodes", scatter),
-        ("right half", half),
+        ("band (horizontal slice)", dmg.band(pos, pattern)),
+        ("ball (25% of pattern)", dmg.ball(pos, pattern, frac=0.25, rng=seeded(1))),
+        ("random 25% of nodes", dmg.scatter(pattern, frac=0.25, rng=seeded(2))),
+        ("right half", dmg.half(pos, pattern)),
     ]
 
 
 def run(ckpt_path):
-    # reseed per checkpoint: every model must face the same damage regions and
-    # the same stochastic update draws, or the comparison measures noise
-    global rng
-    rng = np.random.default_rng(args.seed)
+    # reseed per checkpoint: every model must face the same stochastic update
+    # draws, or the comparison measures noise. Damage regions are seeded
+    # independently in damage_sets.
     torch.manual_seed(args.seed)
 
     ckpt = torch.load(ckpt_path, weights_only=False)
