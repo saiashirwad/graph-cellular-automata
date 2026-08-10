@@ -6,6 +6,8 @@ but on a random graph instead of a grid.
 One seed node grows into the whole pattern, using nothing but messages passed
 between neighbors.
 
+Live demo: **[gca.texoport.in](https://gca.texoport.in/)**
+
 | Target | Rollout |
 |---|---|
 | ![target](target.png) | ![growth](growth.gif) |
@@ -109,6 +111,9 @@ It reseeds everything per checkpoint so you compare models and not luck. I got
 that wrong at first and spent a while reading noise as signal.
 
 ## The browser demo
+
+Running at [gca.texoport.in](https://gca.texoport.in/), or open
+`web/index.html` after an export.
 
 The forward pass is reimplemented in plain JavaScript. No PyTorch, no server,
 no build step. It matches the Python model to 4.8e-7.
