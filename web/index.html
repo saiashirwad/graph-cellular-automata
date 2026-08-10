@@ -242,6 +242,15 @@
     display:flex; align-items:center; gap:15px; min-width:0; overflow:hidden;
     font:10.5px/1 var(--mono); color:var(--faint);
   }
+  #deckSpeed {
+    margin-left:auto; flex:none; display:flex; align-items:center; gap:10px;
+    font:10.5px/1 var(--mono); color:var(--faint); cursor:pointer;
+  }
+  #deckSpeed span {
+    color:var(--ink); min-width:11ch; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  #deckSpeed input[type=range] { width:130px; }
   #readout span { display:flex; align-items:baseline; gap:6px; }
   #readout i {
     font-style:normal; font-family:var(--serif); font-weight:600; font-size:9.5px;
@@ -294,6 +303,11 @@
   #story b { color:var(--ink); font-weight:600; }
   #story::before { content:"\25B8"; font-size:11px; color:var(--faint); flex:none; }
   #legend { font:italic 12px/1.5 var(--serif); color:var(--faint); text-align:center; margin-top:-8px; }
+  #legend .sw {
+    display:inline-flex; align-items:center; gap:6px; vertical-align:-1px;
+    font:9.5px/1 var(--mono); font-style:normal; color:var(--faint);
+  }
+  #legend .sw b { width:54px; height:7px; box-shadow:inset 0 0 0 1px var(--line); }
 
   @media (max-width:1200px) { .keys { display:none; } .exp .edesc { display:none; } }
   @media (max-width:900px) {
@@ -337,13 +351,10 @@
     <h2>Display</h2>
     <div class="chips">
       <label class="chip">Graph edges<input type="checkbox" id="edges" checked></label>
+      <label class="chip">Slow spin<input type="checkbox" id="spin"></label>
     </div>
     <div class="ctrl">
-      <label>Speed <span id="spdV">2 steps / frame</span></label>
-      <input type="range" id="spd" min="1" max="8" value="2">
-    </div>
-    <div class="ctrl">
-      <label>Brush <span id="brV">0.08</span></label>
+      <label>Brush <span id="brV"></span></label>
       <input type="range" id="br" min="2" max="40" value="8">
     </div>
   </div>
@@ -383,6 +394,7 @@
           <span><i>edges</i><b id="stE">&ndash;</b></span>
           <span><i>loss</i><b id="stL">&ndash;</b><canvas id="spark"></canvas></span>
         </div>
+        <label id="deckSpeed"><span id="spdV">~1 step/s</span><input type="range" id="spd" min="0" max="8" value="0"></label>
       </div>
 
       <div id="wrap">
@@ -400,7 +412,7 @@
   </div>
 
   <div class="keys">
-    <b>1&ndash;5</b> protocols &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot; <b>k</b> clear &middot;
+    <b>1&ndash;3</b> protocols &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot; <b>k</b> clear &middot;
     <b>v</b> optics &middot; <b>l</b> projection &middot; <b>&larr;/&rarr;</b> channel &middot; <b>e/E</b> edges
   </div>
 
@@ -410,6 +422,7 @@
 
 <script src="bundle_bunny.js"></script>
 <script src="pca.js"></script>
+<script src="umap.js"></script>
 <script src="demo.js"></script>
 </body>
 </html>

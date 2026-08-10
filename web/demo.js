@@ -6,7 +6,9 @@
 // ---- model state (swappable) ----
 let N, C, AIDX, pos, off, src, W1, b1, W2, H, TGT, SEED, dim = 2;
 let x;                       // node states Float32Array(N*C)
-let t = 0, running = true, stepsPerFrame = 2, brushR = 0.08;
+let t = 0, running = true, stepsPerFrame = 1/60, stepAcc = 0, brushR = 0.08;
+let autoFf = true;           // grow flat-out first, settle to 1 step/s when grown
+let spdGlide = 0;            // pending deceleration timer, if any
 let showGhost = true, showEdges = true, glow = true;
 let view = "rgb";            // "rgb" | "act" | channel index
 let act, actMax = 1e-6;      // per-node EMA of update magnitude
@@ -38,7 +40,7 @@ function renderEdgeLayer() {}                     // edges are drawn per-frame n
 // dispPos: projected screen coords (fractions, y-up); dispD: depth in [-1,1].
 let layout = "space";
 let P3, T3, spec3, dispPos, dispD;
-let rotY = 0.5, rotX = 0.35, autoSpin = true;
+let rotY = 0.5, rotX = 0.35, autoSpin = false;
 
 function spaceCoords(i, out, o) {
   // trained positions -> display cube [-1,1]
@@ -147,18 +149,51 @@ function stateEmbed() {
   return proj;
 }
 
+// the canonical UMAP map, live: each node sits at its nearest palette
+// centroid's true position on the offline map (UMAPQ.cent2d), with a fixed
+// per-node jitter so nodes of one cell type form a cloud, not a point.
+let mapJit = null;
+function mapEmbed(out) {
+  const cent = UMAPQ.centroids, c2 = UMAPQ.cent2d, K = UMAPQ.k, Hd = UMAPQ.hdim;
+  if (!mapJit || mapJit.length !== N * 2) {
+    mapJit = new Float32Array(N * 2);
+    for (let i = 0; i < N; i++) {
+      const h1 = Math.sin(i * 12.9898) * 43758.5453;
+      const h2 = Math.sin(i * 78.233) * 12543.217;
+      mapJit[i*2]     = (h1 - Math.floor(h1) - 0.5) * 0.05;
+      mapJit[i*2 + 1] = (h2 - Math.floor(h2) - 0.5) * 0.05;
+    }
+  }
+  for (let i = 0; i < N; i++) {
+    let best = 0, bd = Infinity;
+    for (let k = 0; k < K; k++) {
+      let d = 0;
+      for (let j = 0; j < Hd; j++) {
+        const v = x[i*C + 4 + j] - cent[k*Hd + j];
+        d += v * v;
+      }
+      if (d < bd) { bd = d; best = k; }
+    }
+    out[i*3]     = c2[best*2] + mapJit[i*2];
+    out[i*3 + 1] = c2[best*2 + 1] + mapJit[i*2 + 1];
+    out[i*3 + 2] = 0;
+  }
+}
+
 function updateLayout() {
   if (layout === "space") {
     for (let i = 0; i < N; i++) spaceCoords(i, T3, i * 3);
   } else if (layout === "shape") {
     T3.set(spec3);
+  } else if (layout === "map" && typeof UMAPQ !== "undefined") {
+    mapEmbed(T3);
   } else {
     T3.set(stateEmbed());
   }
   for (let i = 0; i < N * 3; i++) P3[i] += (T3[i] - P3[i]) * 0.12;
   // project (orthographic with soft depth cue). 2-d "space" stays flat;
   // 3-d "space" and every other layout get the orbit camera.
-  const flat = layout === "space" && dim < 3;
+  const flat = (layout === "space" && dim < 3) || layout === "map";
   const cy = Math.cos(rotY), sy = Math.sin(rotY);
   const cx = Math.cos(rotX), sx = Math.sin(rotX);
   const scale = dim > 2 ? 0.48 : 0.40;
@@ -223,10 +258,11 @@ function loadBundle(b) {
   actMax = 1e-6;
   lossHist.length = 0;
   // 3-d models open in orbitable space; 2-d stay flat
-  if (dim > 2) { rotY = 0.55; rotX = 0.35; autoSpin = true; }
+  if (dim > 2) { rotY = 0.55; rotX = 0.35; }
   storeEdges();
   initLayouts();
   updateLayout();
+  brushLabel();
   // refresh layout captions that mention "2-d" / "3-d"
   const space = LAYOUTS.find(l => l.id === "space");
   if (space) {
@@ -248,6 +284,9 @@ function seed() {
   x.fill(0);
   for (let c = AIDX; c < C; c++) x[SEED * C + c] = 1;
   t = 0;
+  autoFf = true;
+  clearTimeout(spdGlide);
+  setSpeedIdx(SPEEDS.length - 1);
   traceHist.length = 0;
   if (dispPos) ripples.push({ x: dispPos[SEED*2], y: dispPos[SEED*2+1], t0: performance.now(), col: "255,255,255" });
 }
@@ -351,6 +390,14 @@ function draw(now) {
     }
   }
 
+  // the offline rollout scatter as the map's backdrop: faint reference dots
+  if (layout === "map" && typeof UMAPQ !== "undefined" && UMAPQ.pts) {
+    ctx.fillStyle = "rgba(255,255,255,0.10)";
+    const P = UMAPQ.pts;
+    for (let k = 0; k < P.length; k += 2)
+      ctx.fillRect(px((P[k] + 1) / 2), py((P[k + 1] + 1) / 2), DPR, DPR);
+  }
+
   const rCore = 3.2 * DPR, rHalo = 9 * DPR;
   if (view === "rgb") {
     if (glow) {
@@ -435,6 +482,34 @@ function draw(now) {
       ctx.fillStyle = `rgba(${(cl(0.5+p0*2)*255)|0},${(cl(0.5+p1*2)*255)|0},${(cl(0.5+p2*2)*255)|0},${cl(a).toFixed(3)})`;
       ctx.beginPath();
       ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]), rCore * (0.6 + 0.4 * cl(a)) * (1 - 0.25 * dispD[i]), 0, 6.2832);
+      ctx.fill();
+      ctx.lineWidth = 0.75 * DPR;
+      ctx.strokeStyle = "rgba(255,255,255,0.28)";
+      ctx.stroke();
+    }
+  } else if (view === "umap" && typeof UMAPQ !== "undefined") {
+    // learned cell types: nearest palette centroid in hidden space
+    const cent = Float32Array.from(UMAPQ.centroids);
+    const cols = Float32Array.from(UMAPQ.colors);
+    const K = UMAPQ.k, H = UMAPQ.hdim;
+    for (let i = 0; i < N; i++) {
+      const a = x[i * C + AIDX];
+      if (a < 0.05) continue;
+      let best = 0, bd = Infinity;
+      for (let k = 0; k < K; k++) {
+        let d = 0;
+        for (let j = 0; j < H; j++) {
+          const v = x[i * C + 4 + j] - cent[k * H + j];
+          d += v * v;
+        }
+        if (d < bd) { bd = d; best = k; }
+      }
+      const R = (cols[best * 3] * 255) | 0, G = (cols[best * 3 + 1] * 255) | 0,
+            B = (cols[best * 3 + 2] * 255) | 0;
+      ctx.fillStyle = `rgba(${R},${G},${B},${cl(a).toFixed(3)})`;
+      ctx.beginPath();
+      ctx.arc(px(dispPos[i*2]), py(dispPos[i*2+1]),
+              rCore * (0.6 + 0.4 * cl(a)) * (1 - 0.25 * dispD[i]), 0, 6.2832);
       ctx.fill();
       ctx.lineWidth = 0.75 * DPR;
       ctx.strokeStyle = "rgba(255,255,255,0.28)";
@@ -633,7 +708,10 @@ const hudEl = $("hud");
 let frame = 0, thumbTick = 0;
 
 function loop(now) {
-  if (running) for (let s = 0; s < stepsPerFrame; s++) step();
+  if (running) {                         // fractional speeds: accumulate
+    stepAcc += stepsPerFrame;            // autoFf drives the slider, not the loop
+    while (stepAcc >= 1) { step(); stepAcc -= 1; }
+  }
   if (!spaceIsFlat() && autoSpin && !orbiting) rotY += 0.0035;
   updateLayout();
   draw(now);
@@ -646,7 +724,8 @@ function loop(now) {
       drawTrace();
     }
     if ((thumbTick++ & 3) === 0) paintThumbs();
-    if (pendingWound && t >= pendingWound) { pendingWound = 0; woundRandom(); }
+    if (pendingWound && grown(L)) { pendingWound = 0; woundRandom(); }
+    if (autoFf && grown(L)) { autoFf = false; glideSpeedTo(0); }
     stT.textContent = t;
     stA.textContent = A.toFixed(0) + "%";
     stL.textContent = L.toFixed(4);
@@ -690,9 +769,10 @@ cv.addEventListener("pointermove", e => {
     downPos = { x: e.clientX, y: e.clientY };
   }
   ptr = p;
+  brushLabel();
   if (drawing) paintDamage(p);
 });
-cv.addEventListener("pointerleave", () => ptr = null);
+cv.addEventListener("pointerleave", () => { ptr = null; brushLabel(); });
 window.addEventListener("pointerup", e => {
   if (orbiting && !moved && ptr) {              // click without drag = damage
     paintDamage(ptr);
@@ -700,6 +780,10 @@ window.addEventListener("pointerup", e => {
   }
   drawing = false; orbiting = false; downPos = null;
 });
+
+// "grown" = loss near its floor (aliveness saturates ~10x earlier, useless here);
+// the step cap settles even a model that plateaus higher.
+const grown = L => L < 0.025 || t > 400;
 
 const pauseBtn = $("pause");
 function setRunning(r) {
@@ -710,19 +794,57 @@ $("reset").onclick   = seed;
 pauseBtn.onclick     = () => setRunning(!running);
 $("killall").onclick = () => x.fill(0);
 $("edges").onchange  = e => showEdges = e.target.checked;
+$("spin").onchange   = e => autoSpin = e.target.checked;
 
 function sliderFill(el) {
   const u = (el.value - el.min) / (el.max - el.min) * 100;
   el.style.setProperty("--fill", u + "%");
 }
-$("spd").oninput = e => {
-  stepsPerFrame = +e.target.value;
-  $("spdV").textContent = stepsPerFrame + (stepsPerFrame === 1 ? " step / frame" : " steps / frame");
-  sliderFill(e.target);
+// log-ish speed ladder: 1/60 .. 8 steps per frame (~1 .. ~480 steps/s)
+const SPEEDS = [1/60, 1/20, 1/8, 1/4, 1/2, 1, 2, 4, 8];
+function setSpeedIdx(i) {                // every speed change goes through here,
+  const el = $("spd");                   // so the slider always tells the truth
+  el.value = i;
+  stepsPerFrame = SPEEDS[i];
+  const sps = Math.round(stepsPerFrame * 60);
+  $("spdV").textContent = "~" + sps + (sps === 1 ? " step/s" : " steps/s");
+  sliderFill(el);
+}
+$("spd").oninput = e => {                // visitor takes the wheel: no auto-handoff
+  autoFf = false;
+  clearTimeout(spdGlide);
+  setSpeedIdx(+e.target.value);
 };
+// ease down the ladder, one notch every 90ms — a spin-down, not a snap
+function glideSpeedTo(target) {
+  clearTimeout(spdGlide);
+  const tick = () => {
+    const cur = +$("spd").value;
+    if (cur <= target) { spdGlide = 0; return; }
+    setSpeedIdx(cur - 1);
+    spdGlide = setTimeout(tick, 90);
+  };
+  tick();
+}
+// the brush is labeled by what it kills: live node count inside the ring
+// at the pointer; an area estimate when the pointer is off the canvas.
+function brushCount(p) {
+  let n = 0;
+  const r2 = brushR * brushR;
+  for (let i = 0; i < N; i++) {
+    const dx = dispPos[i*2] - p.x, dy = dispPos[i*2+1] - p.y;
+    if (dx*dx + dy*dy < r2) n++;
+  }
+  return n;
+}
+function brushLabel() {
+  if (!dispPos) return;
+  const n = ptr ? brushCount(ptr) : Math.round(N * Math.PI * brushR * brushR);
+  $("brV").textContent = "~" + n + (n === 1 ? " node" : " nodes");
+}
 $("br").oninput = e => {
   brushR = +e.target.value / 100;
-  $("brV").textContent = brushR.toFixed(2);
+  brushLabel();
   sliderFill(e.target);
 };
 sliderFill($("spd")); sliderFill($("br"));
@@ -739,6 +861,11 @@ const VIEWS = [
     cap: "Hidden state, compressed to color.",
     leg: "similar color = similar hidden state" },
 ];
+if (typeof UMAPQ !== "undefined")
+  VIEWS.splice(3, 0, { id: "umap", name: "Cell types",
+    desc: "learned state \u2192 color",
+    cap: "Same color = same learned cell type.",
+    leg: "UMAP of hidden states, quantized" });
 const CHAN_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 CHAN_IDS.forEach(c => VIEWS.push({
   id: c, chan: true,
@@ -836,7 +963,8 @@ function stepChannel(d) {
 }
 // `v` walks the four optics modes — not all 16 views, which used to drop you
 // onto an arbitrary channel and make the filmstrip come and go.
-const MODES = ["rgb", "act", "pca", "chan"];
+const MODES = ["rgb", "act", "pca",
+               ...(typeof UMAPQ !== "undefined" ? ["umap"] : []), "chan"];
 function cycleMode() {
   const cur = typeof lockedView === "number" ? "chan" : lockedView;
   const next = MODES[(MODES.indexOf(cur) + 1) % MODES.length];
@@ -855,6 +983,10 @@ const LAYOUTS = [
     cap: "Clustered by what they think.",
     leg: "drag to orbit \u00b7 click to damage" },
 ];
+if (typeof UMAPQ !== "undefined")
+  LAYOUTS.push({ id: "map", name: "Map", desc: "the learned state map",
+    cap: "The UMAP map: position \u2248 cell type.",
+    leg: "faint dots = states seen in the training rollout" });
 const layoutMain = $("layoutMain"), layoutCap = $("layoutCap");
 LAYOUTS.forEach(l => {
   const b = document.createElement("button");
@@ -873,17 +1005,36 @@ function setLayout(id) {
   layoutCap.textContent = l.cap;
   updateLegend();
 }
+// the legend doubles as the color key: a swatch per optics mode, using the
+// same ramps the renderer does, then the interaction hints.
 function updateLegend() {
-  const v = VIEWS.find(v => v.id === view);
   const l = LAYOUTS.find(l => l.id === layout);
-  legendEl.textContent = l.leg + " \u00b7 " + (v.leg.startsWith("drag") ? "hover a node to see its neighbors" : v.leg);
+  const sw = (stops, lab) =>
+    `<i class="sw"><b style="background:linear-gradient(90deg,${stops})"></b>${lab}</i>`;
+  const parts = [];
+  if (view === "rgb") {
+    parts.push("colors are the pattern the loss trains",
+               sw("#000,#fff", "dim \u2192 alive"));
+  } else if (view === "act") {
+    parts.push(sw("rgb(60,50,140),rgb(255,140,175)", "idle \u2192 firing"),
+               "where the rule is working");
+  } else if (view === "pca") {
+    parts.push("similar color = similar hidden state");   // relative, no fixed scale
+  } else if (view === "umap") {
+    parts.push("same color = same learned cell type");    // UMAP palette, quantized
+  } else {
+    parts.push(sw("rgb(90,209,232),#0a0a0b,rgb(255,111,145)", "\u2212 \u2192 +"),
+               view === 3 ? "\u03b1 \u2014 aliveness" : "channel " + view + " \u2014 self-invented");
+  }
+  parts.push(l.leg, "hover a node to see its neighbors");
+  legendEl.innerHTML = parts.join(" \u00b7 ");
 }
 setView("rgb");
 setLayout("space");
 
 // ---- experiments: guided scenarios with a narrator ----
 const storyEl = $("story");
-let pendingWound = 0;          // CA step at which to auto-wound (0 = none)
+let pendingWound = 0;          // auto-wound once the pattern has grown in (0 = none)
 
 function setStory(html) { storyEl.innerHTML = html; }
 
@@ -910,16 +1061,10 @@ const EXPERIMENTS = [
     story: "A wound. The dark embers are cells rebuilding \u2014 tear your own.",
     run() {
       setLayout("space"); setView("act"); setRunning(true);
-      if (alivePct() < 10) { seed(); pendingWound = t + 260; }
+      if (alivePct() < 10) { seed(); pendingWound = 1; }
       else woundRandom();
     } },
-  { num: "03", name: "Split brain", desc: "cut the graph in half",
-    story: "The halves can\u2019t talk anymore. Each dreams alone.",
-    run() { setLayout("space"); setView("rgb"); restoreEdges(); cutSpatial(0.5); setRunning(true); } },
-  { num: "04", name: "X-ray", desc: "see its hidden chemistry",
-    story: "Same graph, arranged by what each cell is thinking.",
-    run() { restoreEdges(); setLayout("state"); setView("pca"); setRunning(true); } },
-  { num: "05", name: "Apocalypse", desc: "kill every cell at once",
+  { num: "03", name: "Apocalypse", desc: "kill every cell at once",
     story: "All dead, and it stays dead. Life needs a living neighbor.",
     run() { setLayout("space"); setView("rgb"); x.fill(0); setRunning(true); } },
 ];
@@ -964,13 +1109,6 @@ document.querySelectorAll("#models button").forEach(btn => {
 });
 
 // edge cutting
-function cutSpatial(yLine) {
-  for (let i = 0; i < activeMask.length; i++) {
-    const s = fullEdges[i*2], d = fullEdges[i*2+1];
-    if ((pY(s) < yLine) !== (pY(d) < yLine)) activeMask[i] = 0;
-  }
-  rebuildCSR();
-}
 function cutRandom(frac) {
   for (let i = 0; i < activeMask.length; i++)
     if (Math.random() < frac) activeMask[i] = 0;
@@ -983,7 +1121,6 @@ function restoreEdges() {
 
 // wire up edge-cut buttons
 const cutBtn = (id, fn) => { const b = $(id); if (b) b.onclick = fn; };
-cutBtn("cutSpatial",   () => cutSpatial(0.5));
 cutBtn("cutRandom",    () => cutRandom(0.2));
 cutBtn("restoreEdges", () => restoreEdges());
 
@@ -1002,7 +1139,7 @@ window.addEventListener("keydown", e => {
   else if (e.key === "ArrowLeft") { e.preventDefault(); stepChannel(-1); }
   else if (e.key === "ArrowRight") { e.preventDefault(); stepChannel(1); }
   else if (e.key === "Escape" && typeof lockedView === "number") setView("rgb");
-  else if (e.key >= "1" && e.key <= "5") runExperiment(+e.key - 1);
+  else if (e.key >= "1" && e.key <= "3") runExperiment(+e.key - 1);
   else if (e.key === "e") cutRandom(0.2);
   else if (e.key === "E") restoreEdges();
 });

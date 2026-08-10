@@ -6,11 +6,12 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "torch>=2.13",
-    "numpy>=2.5",
+    "numpy>=2,<2.4",
     "matplotlib>=3.11",
     "pillow>=12",
     "scikit-learn>=1.9",   # PCA of the hidden channels
     "trackio>=0.34",
+    "umap-learn>=0.5.12",
 ]
 
 [build-system]
