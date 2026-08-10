@@ -5,9 +5,12 @@
     uv run python scripts/train.py --animate         # rollout gif from checkpoint
 
 Checkpoints -> runs/, gifs -> docs/media/, metrics -> trackio.
+Use --run NAME per experiment (baseline, deg, deg+gate, ...) so each run gets
+its own checkpoint and a comparable trackio curve; `trackio show` to view.
 """
 import argparse
 import os
+import time
 
 import numpy as np
 import torch
@@ -53,14 +56,20 @@ p.add_argument("--graph", choices=["rgg", "ws", "auto"], default="auto",
 p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
 p.add_argument("--lr", type=float, default=5e-4)
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
+p.add_argument("--run", default="",
+               help="experiment name for the ablation ladder (e.g. baseline, deg, "
+                    "deg+gate). Names the trackio run and, when given, the checkpoint, "
+                    "so parallel experiments don't overwrite each other.")
 p.add_argument("--track", default=True, action=argparse.BooleanOptionalAction,
                help="log curves to trackio (`trackio show` to view)")
 args = p.parse_args()
 
 suffix = ("" if args.target == "heart" else f"_{args.target}") + args.tag
+RUN = (args.run or f"{args.graph}{suffix or '_base'}").replace(" ", "-")
 os.makedirs("runs", exist_ok=True)
 os.makedirs("docs/media", exist_ok=True)
-CKPT = f"runs/checkpoint{suffix}.pt"
+CKPT = (f"runs/checkpoint{suffix or '_base'}--{RUN}.pt" if args.run
+        else f"runs/checkpoint{suffix}.pt")
 GIF, TARGET_PNG = f"docs/media/growth{suffix}.gif", f"docs/media/target{suffix}.png"
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -68,11 +77,11 @@ torch.manual_seed(0)
 
 # --animate: checkpoint is the source of truth (pos, edges, seed, weights).
 # Do not rebuild the graph — --nodes / missing .npz would desync a cloud run.
+track = None
 if not args.animate:
-    track = None
     if args.track:
         import trackio as track
-        track.init(project="gnca", name=f"{args.graph}{suffix or '_base'}", config=vars(args))
+        track.init(project="gnca", name=RUN, config=vars(args))
 
     # --------------------------------------------------- graph + target ----
     is_cloud = args.target in POINTCLOUDS
@@ -134,22 +143,35 @@ if not args.animate:
 
     PROBE_BALL = None  # fixed blob, so the probe is comparable across steps and runs
 
+    def edge_energy(x):
+        """Dirichlet energy: mean over edges of ||x_src - x_dst||^2. How much
+        spatial structure the state carries; collapse during a rollout means
+        perception is going blind (over-smoothing, issue #20)."""
+        s, d = edges
+        return ((x[s] - x[d]) ** 2).sum(-1).mean().item()
+
     def heal_probe(grow=80, heal=160):
         """Grow, punch a hole, heal. This is the number the whole recipe chases:
-        training loss can fall while regeneration stays broken."""
+        training loss can fall while regeneration stays broken. Also samples
+        Dirichlet energy along the growth rollout, the ablation-ladder metric."""
         global PROBE_BALL
         if PROBE_BALL is None:
             PROBE_BALL = torch.from_numpy(dmg.ball(
                 pos, pattern, frac=0.25, center=int(pattern[len(pattern) // 2]))).to(device)
         with torch.no_grad():
             x = seed_state(1, N, args.channels, device, center)[0]
-            for _ in range(grow):
+            energy = {}
+            for t in range(1, grow + 1):
                 x = model(x, edges) * alive_mask(x, edges, N)
+                if t in (10, 20, 40, 80):
+                    energy[f"dirich_t{t}"] = edge_energy(x)
             grown = ((x[:, :4] - target) ** 2).mean().item()
             x[PROBE_BALL] = 0.0
             for _ in range(heal):
                 x = model(x, edges) * alive_mask(x, edges, N)
-            return grown, ((x[:, :4] - target) ** 2).mean().item()
+            healed = ((x[:, :4] - target) ** 2).mean().item()
+            energy["dirich_healed"] = edge_energy(x)
+            return grown, healed, energy
 
     def run_ca(x0, n_steps):
         """Roll out the CA, with pre-step alive masking like the growing NCA."""
@@ -161,6 +183,7 @@ if not args.animate:
         return x
 
     # ------------------------------------------------------------ train ----
+    last_t = [time.time()]
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, args.pool, (args.batch,))
         xb = pool[idx].clone()                               # (B, N, C)
@@ -202,23 +225,27 @@ if not args.animate:
         if track and step % 20 == 0:
             track.log({"loss": loss.item(), "mse": mse.item()}, step=step)
         if step % 200 == 0:
-            print(f"step {step:6d}  loss {loss.item():.6f}  mse {mse.item():.6f}")
-        if step % 1000 == 0:
-            grown, healed = heal_probe()
-            print(f"    probe: grown {grown:.4f}  healed {healed:.4f}")
+            now = time.time()
+            sps = 200 / max(now - last_t[0], 1e-9)
+            last_t[0] = now
+            print(f"step {step:6d}  loss {loss.item():.6f}  mse {mse.item():.6f}  {sps:.1f} steps/s")
             if track:
-                track.log({"probe_grown": grown, "probe_healed": healed}, step=step)
+                track.log({"steps_per_sec": sps}, step=step)
+        if step % 1000 == 0:
+            grown, healed, energy = heal_probe()
+            e_str = "  ".join(f"{k.removeprefix('dirich_')} {v:.4f}" for k, v in energy.items())
+            print(f"    probe: grown {grown:.4f}  healed {healed:.4f}  |E| {e_str}")
+            if track:
+                track.log({"probe_grown": grown, "probe_healed": healed, **energy}, step=step)
         if step % 2000 == 0:
             torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                        "edges": edges.cpu(), "channels": args.channels,
+                        "edges": edges.cpu(), "channels": args.channels, "run": RUN,
                         "center": center, "target_name": args.target, "dim": dim}, CKPT)
 
     torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                "edges": edges.cpu(), "channels": args.channels,
+                "edges": edges.cpu(), "channels": args.channels, "run": RUN,
                 "center": center, "target_name": args.target, "dim": dim}, CKPT)
     print(f"saved {CKPT}")
-    if track:
-        track.finish()
 
 # ------------------------------------------------------------ visualize ----
 # Always reload the checkpoint so animate and post-train gifs share one path.
@@ -288,3 +315,8 @@ anim.save(GIF, writer=PillowWriter(fps=16))
 draw(ax, tgt, "target", spin=30)
 plt.savefig(TARGET_PNG)
 print(f"saved {GIF} and {TARGET_PNG}")
+
+if track:  # post-train: attach the rollout + target to the run, then close it
+    track.log({"growth_rollout": track.Video(GIF, caption=f"{RUN} growth", fps=16),
+               "target": track.Image(TARGET_PNG, caption=f"{RUN} target")}, step=args.steps)
+    track.finish()
