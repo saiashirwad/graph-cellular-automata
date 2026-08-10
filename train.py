@@ -25,6 +25,7 @@ p.add_argument("--graph", choices=["rgg", "ws"], default="rgg",
                help="rgg: random geometric graph + heart target; "
                     "ws: Watts-Strogatz small-world ring + rainbow target")
 p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
+p.add_argument("--lr", type=float, default=5e-4)
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
 args = p.parse_args()
 
@@ -53,7 +54,7 @@ bedges = (edges[None] + offsets[..., None]).permute(1, 0, 2).reshape(2, -1).to(d
 edges = edges.to(device)
 
 model = GraphNCA(channels=args.channels).to(device)
-opt = torch.optim.Adam(model.parameters(), lr=2e-3)
+opt = torch.optim.Adam(model.parameters(), lr=args.lr)
 
 # ---------------------------------------------------------------- pool -----
 pool = seed_state(args.pool, N, args.channels, device, center)
@@ -82,13 +83,14 @@ if not args.animate:
 
         opt.zero_grad()
         loss.backward()
+        torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)  # stability
         opt.step()
 
-        with torch.no_grad():  # write samples back to the pool (sort by loss)
-            pool[idx] = x.view(args.batch, N, -1).detach()
-            if step % 100 == 0:
-                worst = ((pool[..., :4] - target) ** 2).mean((1, 2)).argmax()
-                pool[worst] = seed_state(1, N, args.channels, device, center)[0]
+        with torch.no_grad():  # write back to pool; worst sample -> fresh seed
+            xb = x.view(args.batch, N, -1).detach()
+            per_sample = ((xb[..., :4] - target) ** 2).mean((1, 2))
+            xb[per_sample.argmax()] = seed_state(1, N, args.channels, device, center)[0]
+            pool[idx] = xb
         if step % 200 == 0:
             print(f"step {step:6d}  loss {loss.item():.6f}")
         if step % 2000 == 0:
