@@ -3,17 +3,18 @@ import numpy as np
 import torch
 
 
-def random_geometric_graph(n_nodes=1024, k=8, seed=0):
-    """Uniform random points in the unit square, edges = k-nearest neighbors.
+def knn_graph(pos, k=8):
+    """k-nearest-neighbor graph on existing positions.
+
+    Same edge construction as the random geometric graph, but the nodes are
+    given: surface point clouds, a ring, anything with coordinates.
 
     Returns:
-        pos:        (N, 2) float32 array of node positions in [0, 1]^2
         edge_index: (2, E) long tensor, edges in both directions
     """
-    rng = np.random.default_rng(seed)
-    pos = rng.random((n_nodes, 2), dtype=np.float32)
-
-    # k-NN via pairwise distances (fine for a few thousand nodes)
+    pos = np.asarray(pos, dtype=np.float32)
+    n_nodes = pos.shape[0]
+    k = min(k, n_nodes - 1)
     d2 = ((pos[:, None] - pos[None]) ** 2).sum(-1)
     np.fill_diagonal(d2, np.inf)
     nn_idx = np.argpartition(d2, k, axis=1)[:, :k]          # (N, k)
@@ -23,7 +24,22 @@ def random_geometric_graph(n_nodes=1024, k=8, seed=0):
     edges = np.stack([src, dst])
     edges = np.concatenate([edges, edges[::-1]], axis=1)    # bidirectional
     edges = np.unique(edges, axis=1)                        # dedupe
-    return pos, torch.from_numpy(edges.astype(np.int64))
+    return torch.from_numpy(edges.astype(np.int64))
+
+
+def random_geometric_graph(n_nodes=1024, k=8, seed=0, dim=2):
+    """Uniform random points in the unit cube, edges = k-nearest neighbors.
+
+    dim=2 gives the flat graph, dim=3 a solid one. Nothing downstream cares:
+    perception is over edges, and the positions only decide who is a neighbor.
+
+    Returns:
+        pos:        (N, dim) float32 array of node positions in [0, 1]^dim
+        edge_index: (2, E) long tensor, edges in both directions
+    """
+    rng = np.random.default_rng(seed)
+    pos = rng.random((n_nodes, dim), dtype=np.float32)
+    return pos, knn_graph(pos, k=k)
 
 
 def watts_strogatz_graph(n_nodes=1024, k=8, beta=0.05, seed=0):

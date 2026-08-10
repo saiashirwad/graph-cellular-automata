@@ -16,13 +16,16 @@ import torch.nn.functional as F
 from gnca import (
     GraphNCA,
     alive_mask,
-    heart_target,
+    knn_graph,
     random_geometric_graph,
-    ring_target,
     seed_state,
     watts_strogatz_graph,
 )
 from gnca import damage as dmg
+from gnca.pointclouds import POINTCLOUDS, load_cloud
+from gnca.targets import TARGETS
+
+ALL_TARGETS = list(TARGETS) + list(POINTCLOUDS)
 
 p = argparse.ArgumentParser()
 p.add_argument("--nodes", type=int, default=1024)
@@ -40,9 +43,13 @@ p.add_argument("--noise", type=float, default=0.02, help="state noise on x0")
 p.add_argument("--overflow", type=float, default=1.0,
                help="penalty on state magnitude outside [-1, 1]")
 p.add_argument("--tag", default="", help="suffix for checkpoint/gif filenames")
-p.add_argument("--graph", choices=["rgg", "ws"], default="rgg",
-               help="rgg: random geometric graph + heart target; "
-                    "ws: Watts-Strogatz small-world ring + rainbow target")
+p.add_argument("--target", default="heart", choices=ALL_TARGETS,
+               help="pattern to grow. 2-d: heart/star/annulus/lobes/ring. "
+                    "volume 3-d: sphere/torus/jack. surface point clouds: "
+                    "bunny/spot/armadillo/teapot (run scripts/fetch_pointclouds.py first)")
+p.add_argument("--graph", choices=["rgg", "ws", "auto"], default="auto",
+               help="rgg: random geometric graph; ws: Watts-Strogatz ring; "
+                    "auto: point-cloud k-NN for mesh targets, else rgg")
 p.add_argument("--beta", type=float, default=0.05, help="WS rewiring probability")
 p.add_argument("--lr", type=float, default=5e-4)
 p.add_argument("--animate", action="store_true", help="skip training, render checkpoint")
@@ -50,7 +57,7 @@ p.add_argument("--track", default=True, action=argparse.BooleanOptionalAction,
                help="log curves to trackio (`trackio show` to view)")
 args = p.parse_args()
 
-suffix = ("" if args.graph == "rgg" else "_ws") + args.tag
+suffix = ("" if args.target == "heart" else f"_{args.target}") + args.tag
 os.makedirs("runs", exist_ok=True)
 os.makedirs("docs/media", exist_ok=True)
 CKPT = f"runs/checkpoint{suffix}.pt"
@@ -59,85 +66,101 @@ GIF, TARGET_PNG = f"docs/media/growth{suffix}.gif", f"docs/media/target{suffix}.
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 torch.manual_seed(0)
 
-track = None
-if args.track and not args.animate:
-    import trackio as track
-    track.init(project="gnca", name=f"{args.graph}{suffix or '_base'}", config=vars(args))
-
-# ------------------------------------------------------- graph + target ----
-if args.graph == "ws":
-    pos, edges = watts_strogatz_graph(args.nodes, k=args.k, beta=args.beta)
-    target_np = ring_target(pos)
-    seed_at = np.array([1.0, 0.5])                               # node 0 on the ring
-else:
-    pos, edges = random_geometric_graph(args.nodes, k=args.k)
-    target_np = heart_target(pos)
-    seed_at = np.array([0.5, 0.45])                              # heart center
-N = pos.shape[0]
-target = torch.from_numpy(target_np).to(device)                  # (N, 4)
-center = int(np.argmin(((pos - seed_at) ** 2).sum(1)))           # seed node
-
-# batched edges: replicate the graph args.batch times with node-index offsets
-offsets = torch.arange(args.batch, dtype=torch.int64)[:, None] * N
-bedges = (edges[None] + offsets[..., None]).permute(1, 0, 2).reshape(2, -1).to(device)
-edges = edges.to(device)
-
-model = GraphNCA(channels=args.channels).to(device)
-opt = torch.optim.Adam(model.parameters(), lr=args.lr)
-
-# ---------------------------------------------------------------- pool -----
-pool = seed_state(args.pool, N, args.channels, device, center)
-
-# -------------------------------------------------------------- damage -----
-pattern = dmg.pattern_nodes(target_np)
-rng = np.random.default_rng(1)
-
-
-def damage(xb, n):
-    """Wipe all channels of some nodes in the last n samples of the batch.
-
-    One sample gets scattered damage, the rest get balls covering 20-50% of
-    the pattern.
-    """
-    for i in range(1, n + 1):
-        nodes = (dmg.ball(pos, pattern, frac=rng.uniform(0.2, 0.5), rng=rng)
-                 if i > 1 else dmg.scatter(pattern, rng=rng))
-        xb[-i, torch.from_numpy(nodes).to(device)] = 0.0
-
-
-PROBE_BALL = None  # fixed blob, so the probe is comparable across steps and runs
-
-
-def heal_probe(grow=80, heal=160):
-    """Grow, punch a hole, heal. This is the number the whole recipe chases:
-    training loss can fall while regeneration stays broken."""
-    global PROBE_BALL
-    if PROBE_BALL is None:
-        PROBE_BALL = torch.from_numpy(dmg.ball(
-            pos, pattern, frac=0.25, center=int(pattern[len(pattern) // 2]))).to(device)
-    with torch.no_grad():
-        x = seed_state(1, N, args.channels, device, center)[0]
-        for _ in range(grow):
-            x = model(x, edges) * alive_mask(x, edges, N)
-        grown = ((x[:, :4] - target) ** 2).mean().item()
-        x[PROBE_BALL] = 0.0
-        for _ in range(heal):
-            x = model(x, edges) * alive_mask(x, edges, N)
-        return grown, ((x[:, :4] - target) ** 2).mean().item()
-
-
-def run_ca(x0, n_steps):
-    """Roll out the CA, with pre-step alive masking like the growing NCA."""
-    x = x0
-    for _ in range(n_steps):
-        m = alive_mask(x, bedges if x.shape[0] == args.batch * N else edges, N)
-        x = model(x, bedges if x.shape[0] == args.batch * N else edges)
-        x = x * m
-    return x
-
-
-# ---------------------------------------------------------------- train ----
+# --animate: checkpoint is the source of truth (pos, edges, seed, weights).
+# Do not rebuild the graph — --nodes / missing .npz would desync a cloud run.
 if not args.animate:
+    track = None
+    if args.track:
+        import trackio as track
+        track.init(project="gnca", name=f"{args.graph}{suffix or '_base'}", config=vars(args))
+
+    # --------------------------------------------------- graph + target ----
+    is_cloud = args.target in POINTCLOUDS
+    if is_cloud:
+        # every node sits on the mesh; colour is baked from normals
+        pos, target_np, seed_at = load_cloud(args.target, n_nodes=args.nodes)
+        seed_at = np.asarray(seed_at, dtype=np.float32)
+        dim = pos.shape[1]
+        edges = knn_graph(pos, k=args.k)
+        graph_kind = "cloud"
+    elif args.graph == "ws" or (args.graph == "auto" and args.target == "ring"):
+        target_fn, seed_pt = TARGETS[args.target]
+        seed_at = np.array(seed_pt)
+        dim = len(seed_at)
+        pos, edges = watts_strogatz_graph(args.nodes, k=args.k, beta=args.beta)
+        target_np = target_fn(pos)
+        graph_kind = "ws"
+    else:
+        if args.target not in TARGETS:
+            raise SystemExit(f"unknown target {args.target!r}")
+        target_fn, seed_pt = TARGETS[args.target]
+        seed_at = np.array(seed_pt)
+        dim = len(seed_at)                       # the target decides 2-d or 3-d
+        pos, edges = random_geometric_graph(args.nodes, k=args.k, dim=dim)
+        target_np = target_fn(pos)
+        graph_kind = "rgg"
+
+    N = pos.shape[0]
+    print(f"{args.target}: {dim}-d {graph_kind} graph, {N} nodes, "
+          f"{int((target_np[:, 3] > 0.5).sum())} in the pattern")
+    target = torch.from_numpy(target_np).to(device)                  # (N, 4)
+    center = int(np.argmin(((pos - seed_at) ** 2).sum(1)))           # seed node
+
+    # batched edges: replicate the graph args.batch times with node-index offsets
+    offsets = torch.arange(args.batch, dtype=torch.int64)[:, None] * N
+    bedges = (edges[None] + offsets[..., None]).permute(1, 0, 2).reshape(2, -1).to(device)
+    edges = edges.to(device)
+
+    model = GraphNCA(channels=args.channels).to(device)
+    opt = torch.optim.Adam(model.parameters(), lr=args.lr)
+
+    # ------------------------------------------------------------ pool -----
+    pool = seed_state(args.pool, N, args.channels, device, center)
+
+    # ---------------------------------------------------------- damage -----
+    pattern = dmg.pattern_nodes(target_np)
+    rng = np.random.default_rng(1)
+
+    def damage(xb, n):
+        """Wipe all channels of some nodes in the last n samples of the batch.
+
+        One sample gets scattered damage, the rest get balls covering 20-50% of
+        the pattern.
+        """
+        for i in range(1, n + 1):
+            nodes = (dmg.ball(pos, pattern, frac=rng.uniform(0.2, 0.5), rng=rng)
+                     if i > 1 else dmg.scatter(pattern, rng=rng))
+            xb[-i, torch.from_numpy(nodes).to(device)] = 0.0
+
+    PROBE_BALL = None  # fixed blob, so the probe is comparable across steps and runs
+
+    def heal_probe(grow=80, heal=160):
+        """Grow, punch a hole, heal. This is the number the whole recipe chases:
+        training loss can fall while regeneration stays broken."""
+        global PROBE_BALL
+        if PROBE_BALL is None:
+            PROBE_BALL = torch.from_numpy(dmg.ball(
+                pos, pattern, frac=0.25, center=int(pattern[len(pattern) // 2]))).to(device)
+        with torch.no_grad():
+            x = seed_state(1, N, args.channels, device, center)[0]
+            for _ in range(grow):
+                x = model(x, edges) * alive_mask(x, edges, N)
+            grown = ((x[:, :4] - target) ** 2).mean().item()
+            x[PROBE_BALL] = 0.0
+            for _ in range(heal):
+                x = model(x, edges) * alive_mask(x, edges, N)
+            return grown, ((x[:, :4] - target) ** 2).mean().item()
+
+    def run_ca(x0, n_steps):
+        """Roll out the CA, with pre-step alive masking like the growing NCA."""
+        x = x0
+        for _ in range(n_steps):
+            m = alive_mask(x, bedges if x.shape[0] == args.batch * N else edges, N)
+            x = model(x, bedges if x.shape[0] == args.batch * N else edges)
+            x = x * m
+        return x
+
+    # ------------------------------------------------------------ train ----
     for step in range(1, args.steps + 1):
         idx = torch.randint(0, args.pool, (args.batch,))
         xb = pool[idx].clone()                               # (B, N, C)
@@ -187,16 +210,20 @@ if not args.animate:
                 track.log({"probe_grown": grown, "probe_healed": healed}, step=step)
         if step % 2000 == 0:
             torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                        "edges": edges.cpu(), "channels": args.channels}, CKPT)
+                        "edges": edges.cpu(), "channels": args.channels,
+                        "center": center, "target_name": args.target, "dim": dim}, CKPT)
 
     torch.save({"model": model.state_dict(), "pos": pos, "target": target.cpu(),
-                "edges": edges.cpu(), "channels": args.channels}, CKPT)
+                "edges": edges.cpu(), "channels": args.channels,
+                "center": center, "target_name": args.target, "dim": dim}, CKPT)
     print(f"saved {CKPT}")
     if track:
         track.finish()
 
 # ------------------------------------------------------------ visualize ----
-import os
+# Always reload the checkpoint so animate and post-train gifs share one path.
+if not os.path.isfile(CKPT):
+    raise SystemExit(f"missing checkpoint {CKPT}")
 
 os.environ.pop("MPLBACKEND", None)  # don't inherit a notebook backend
 import matplotlib
@@ -206,17 +233,47 @@ import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 
 ckpt = torch.load(CKPT, weights_only=False)
-model.load_state_dict(ckpt["model"])
-pos, tgt = ckpt["pos"], ckpt["target"].numpy()
+pos = np.asarray(ckpt["pos"], dtype=np.float32)
+tgt = ckpt["target"]
+tgt = tgt.numpy() if torch.is_tensor(tgt) else np.asarray(tgt, dtype=np.float32)
+edges = ckpt["edges"]
+edges = edges.to(device) if torch.is_tensor(edges) else torch.as_tensor(edges, device=device)
+N = pos.shape[0]
+dim = int(ckpt.get("dim", pos.shape[1]))
+channels = int(ckpt["channels"])
+if "center" in ckpt:
+    center = int(ckpt["center"])
+else:
+    center = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
 
-def draw(ax, rgba, title):
+model = GraphNCA(channels=channels).to(device)
+model.load_state_dict(ckpt["model"])
+print(f"animate {CKPT}: {dim}-d, {N} nodes, seed={center}")
+
+
+def draw(ax, rgba, title, spin=0.0):
+    """Scatter the nodes. In 3-d, drop the dead ones and spin slowly, since a
+    still frame of a shell reads as a disc."""
     ax.clear()
-    ax.scatter(pos[:, 0], pos[:, 1], c=np.clip(rgba[:, :3], 0, 1),
-               s=14, alpha=np.clip(rgba[:, 3], 0, 1), linewidths=0)
-    ax.set(xlim=(0, 1), ylim=(0, 1), aspect="equal", title=title)
+    a = np.clip(rgba[:, 3], 0, 1)
+    c = np.clip(rgba[:, :3], 0, 1)
+    if dim == 3:
+        live = a > 0.1
+        ax.set_facecolor("black")
+        ax.scatter(pos[live, 0], pos[live, 1], pos[live, 2],
+                   c=c[live], s=22, alpha=0.9, linewidths=0, depthshade=False)
+        ax.set(xlim=(0.08, 0.92), ylim=(0.08, 0.92), zlim=(0.08, 0.92))
+        ax.set_title(title, color="white")
+        ax.view_init(elev=18, azim=spin)
+        ax.set_box_aspect((1, 1, 1))
+    else:
+        ax.scatter(pos[:, 0], pos[:, 1], c=c, s=14, alpha=a, linewidths=0)
+        ax.set(xlim=(0, 1), ylim=(0, 1), aspect="equal", title=title)
     ax.axis("off")
 
-fig, ax = plt.subplots(figsize=(5, 5), dpi=120)
+fig = plt.figure(figsize=(5, 5), dpi=120,
+                 facecolor="black" if dim == 3 else "white")
+ax = fig.add_subplot(projection="3d" if dim == 3 else None)
 x = seed_state(1, N, model.channels, device, center)[0]
 frames = []
 with torch.no_grad():
@@ -225,9 +282,9 @@ with torch.no_grad():
         m = alive_mask(x, edges, N)
         x = model(x, edges) * m
 
-anim = FuncAnimation(fig, lambda i: draw(ax, frames[i], f"graph NCA, t={i}"),
+anim = FuncAnimation(fig, lambda i: draw(ax, frames[i], f"graph NCA, t={i}", spin=-60 + i * 1.5),
                      frames=len(frames), interval=60)
 anim.save(GIF, writer=PillowWriter(fps=16))
-draw(ax, tgt, "target")
+draw(ax, tgt, "target", spin=30)
 plt.savefig(TARGET_PNG)
 print(f"saved {GIF} and {TARGET_PNG}")

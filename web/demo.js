@@ -4,12 +4,17 @@
 "use strict";
 
 // ---- model state (swappable) ----
-let N, C, AIDX, pos, off, src, W1, b1, W2, H, TGT, SEED;
+let N, C, AIDX, pos, off, src, W1, b1, W2, H, TGT, SEED, dim = 2;
 let x;                       // node states Float32Array(N*C)
 let t = 0, running = true, stepsPerFrame = 2, brushR = 0.08;
 let showGhost = true, showEdges = true, glow = true;
 let view = "rgb";            // "rgb" | "act" | channel index
 let act, actMax = 1e-6;      // per-node EMA of update magnitude
+
+// node i position in the trained embedding (2-d or 3-d, coords in [0,1])
+const pX = i => pos[i * dim];
+const pY = i => pos[i * dim + 1];
+const pZ = i => dim > 2 ? pos[i * dim + 2] : 0.5;
 
 // ---- canvas / sizing ----
 const cv = document.getElementById("c");
@@ -35,16 +40,19 @@ let layout = "space";
 let P3, T3, spec3, dispPos, dispD;
 let rotY = 0.5, rotX = 0.35, autoSpin = true;
 
+function spaceCoords(i, out, o) {
+  // trained positions -> display cube [-1,1]
+  out[o]     = pX(i) * 2 - 1;
+  out[o + 1] = pY(i) * 2 - 1;
+  out[o + 2] = dim > 2 ? pZ(i) * 2 - 1 : 0;
+}
+
 function initLayouts() {
   P3 = new Float32Array(N * 3);
   T3 = new Float32Array(N * 3);
   dispPos = new Float32Array(N * 2);
   dispD = new Float32Array(N);
-  for (let i = 0; i < N; i++) {                   // start at trained positions
-    P3[i*3]   = pos[i*2] * 2 - 1;
-    P3[i*3+1] = pos[i*2+1] * 2 - 1;
-    P3[i*3+2] = 0;
-  }
+  for (let i = 0; i < N; i++) spaceCoords(i, P3, i * 3);
   spec3 = spectralEmbed();
   stateV = null;
 }
@@ -141,19 +149,19 @@ function stateEmbed() {
 
 function updateLayout() {
   if (layout === "space") {
-    for (let i = 0; i < N; i++) {
-      T3[i*3] = pos[i*2] * 2 - 1; T3[i*3+1] = pos[i*2+1] * 2 - 1; T3[i*3+2] = 0;
-    }
+    for (let i = 0; i < N; i++) spaceCoords(i, T3, i * 3);
   } else if (layout === "shape") {
     T3.set(spec3);
   } else {
     T3.set(stateEmbed());
   }
   for (let i = 0; i < N * 3; i++) P3[i] += (T3[i] - P3[i]) * 0.12;
-  // project (orthographic with soft depth cue)
-  const flat = layout === "space";
+  // project (orthographic with soft depth cue). 2-d "space" stays flat;
+  // 3-d "space" and every other layout get the orbit camera.
+  const flat = layout === "space" && dim < 3;
   const cy = Math.cos(rotY), sy = Math.sin(rotY);
   const cx = Math.cos(rotX), sx = Math.sin(rotX);
+  const scale = dim > 2 ? 0.48 : 0.40;
   for (let i = 0; i < N; i++) {
     const X = P3[i*3], Y = P3[i*3+1], Z = P3[i*3+2];
     if (flat) {
@@ -161,8 +169,8 @@ function updateLayout() {
     } else {
       const x1 = X * cy + Z * sy, z1 = -X * sy + Z * cy;
       const y1 = Y * cx - z1 * sx, z2 = Y * sx + z1 * cx;
-      dispPos[i*2]   = 0.5 + 0.40 * x1;
-      dispPos[i*2+1] = 0.5 + 0.40 * y1;
+      dispPos[i*2]   = 0.5 + scale * x1;
+      dispPos[i*2+1] = 0.5 + scale * y1;
       dispD[i] = z2;
     }
   }
@@ -201,6 +209,8 @@ function rebuildCSR() {
 function loadBundle(b) {
   N = b.n; C = b.channels; AIDX = b.alive_alpha_idx; H = 128;
   pos = Float32Array.from(b.pos);
+  // dim is explicit on new exports; older 2-d bundles omit it
+  dim = b.dim || Math.round(pos.length / N) || 2;
   off = Int32Array.from(b.csr_off);
   src = Int32Array.from(b.csr_src);
   W1 = Float32Array.from(b.w1);
@@ -212,9 +222,22 @@ function loadBundle(b) {
   act = new Float32Array(N);
   actMax = 1e-6;
   lossHist.length = 0;
+  // 3-d models open in orbitable space; 2-d stay flat
+  if (dim > 2) { rotY = 0.55; rotX = 0.35; autoSpin = true; }
   storeEdges();
   initLayouts();
   updateLayout();
+  // refresh layout captions that mention "2-d" / "3-d"
+  const space = LAYOUTS.find(l => l.id === "space");
+  if (space) {
+    space.desc = dim > 2 ? "trained 3-d positions" : "trained 2-d positions";
+    space.cap  = dim > 2 ? "The trained 3-d coordinates." : "The trained 2-d coordinates.";
+    space.leg  = dim > 2 ? "drag to orbit · click to damage" : "drag to damage";
+    if (space.btn) {
+      space.btn.querySelector(".vdesc").textContent = space.desc;
+    }
+  }
+  setLayout(layout);  // re-apply caps for current layout
   renderWeights();
   seed();
 }
@@ -314,7 +337,7 @@ function draw(now) {
     ctx.stroke();
   }
 
-  if (showGhost && view === "rgb" && layout === "space") {
+  if (showGhost && view === "rgb" && (layout === "space" || dim > 2)) {
     ctx.globalCompositeOperation = "source-over";
     for (let i = 0; i < N; i++) {
       const a = TGT[i*4 + 3];
@@ -437,12 +460,12 @@ function draw(now) {
 
   drawRipples(now);
 
-  // hover: show who the nearest node listens to
+  // hover: show who the nearest node listens to (screen space, works in 3-d)
   let hovered = -1;
   if (ptr && !drawing) {
     let hi = -1, hd = 0.035 * 0.035;
     for (let i = 0; i < N; i++) {
-      const dx = pos[i*2] - ptr.x, dy = pos[i*2+1] - ptr.y;
+      const dx = dispPos[i*2] - ptr.x, dy = dispPos[i*2+1] - ptr.y;
       const d = dx*dx + dy*dy;
       if (d < hd) { hd = d; hi = i; }
     }
@@ -609,7 +632,7 @@ let frame = 0, thumbTick = 0;
 
 function loop(now) {
   if (running) for (let s = 0; s < stepsPerFrame; s++) step();
-  if (layout !== "space" && autoSpin && !orbiting) rotY += 0.0035;
+  if (!spaceIsFlat() && autoSpin && !orbiting) rotY += 0.0035;
   updateLayout();
   draw(now);
   if ((frame++ & 3) === 0) {                    // stats every 4th frame
@@ -644,9 +667,11 @@ function paintDamage(p) {
       for (let c = 0; c < C; c++) x[i*C + c] = 0;
   }
 }
+function spaceIsFlat() { return layout === "space" && dim < 3; }
+
 cv.addEventListener("pointerdown", e => {
   ptr = canvasPos(e);
-  if (layout === "space") {
+  if (spaceIsFlat()) {
     drawing = true; paintDamage(ptr);
     ripples.push({ x: ptr.x, y: ptr.y, t0: performance.now(), col: "255,111,145" });
   } else {
@@ -818,8 +843,8 @@ function cycleMode() {
 
 // layout picker
 const LAYOUTS = [
-  { id: "space", name: "Space", desc: "trained 2-d positions",
-    cap: "The trained 2-d coordinates.",
+  { id: "space", name: "Space", desc: "trained positions",
+    cap: "The trained coordinates.",
     leg: "drag to damage" },
   { id: "shape", name: "Shape", desc: "topology only, 3-d",
     cap: "The wiring\u2019s own shape.",
@@ -924,12 +949,24 @@ document.querySelectorAll("details").forEach(d =>
   d.addEventListener("toggle", () => { renderWeights(); drawTrace(); }));
 
 // model picker. "healer" is the same heart target under a rule trained on
-// damaged patterns; flip between it and "heart" to see one heal and one stall
+// damaged patterns; flip between it and "heart" to see one heal and one stall.
+// Optional 3-d surface bundles appear only when their script tag is present
+// (top-level const is visible to typeof here, not on window).
 const MODELS = { heart: BUNDLE, ring: BUNDLE_WS };
 if (typeof BUNDLE_DMG !== "undefined") MODELS.healer = BUNDLE_DMG;
+if (typeof BUNDLE_BUNNY !== "undefined") MODELS.bunny = BUNDLE_BUNNY;
+if (typeof BUNDLE_SPOT !== "undefined") MODELS.spot = BUNDLE_SPOT;
+if (typeof BUNDLE_TEAPOT !== "undefined") MODELS.teapot = BUNDLE_TEAPOT;
+if (typeof BUNDLE_ARMADILLO !== "undefined") MODELS.armadillo = BUNDLE_ARMADILLO;
+// hide picker buttons whose bundle is missing
+document.querySelectorAll("#models button").forEach(btn => {
+  const id = btn.dataset.model;
+  if (id && !MODELS[id]) btn.hidden = true;
+});
 
 document.querySelectorAll("#models button").forEach(btn => {
   btn.onclick = () => {
+    if (!MODELS[btn.dataset.model]) return;
     document.querySelectorAll("#models button").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
     loadBundle(MODELS[btn.dataset.model] || BUNDLE);
@@ -940,7 +977,7 @@ document.querySelectorAll("#models button").forEach(btn => {
 function cutSpatial(yLine) {
   for (let i = 0; i < activeMask.length; i++) {
     const s = fullEdges[i*2], d = fullEdges[i*2+1];
-    if ((pos[s*2+1] < yLine) !== (pos[d*2+1] < yLine)) activeMask[i] = 0;
+    if ((pY(s) < yLine) !== (pY(d) < yLine)) activeMask[i] = 0;
   }
   rebuildCSR();
 }

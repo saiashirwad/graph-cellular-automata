@@ -22,8 +22,12 @@ p.add_argument("--var", default="BUNDLE", help="the const the JS file declares")
 a = p.parse_args()
 
 ckpt = torch.load(a.checkpoint, weights_only=False)
-pos = np.asarray(ckpt["pos"], dtype=np.float32)          # (N,2)
-edges = ckpt["edges"].numpy()                            # (2,E)
+pos = np.asarray(ckpt["pos"], dtype=np.float32)          # (N, 2) or (N, 3)
+if pos.ndim != 2 or pos.shape[1] not in (2, 3):
+    raise SystemExit(f"expected pos (N,2|3), got {pos.shape}")
+dim = int(pos.shape[1])
+edges = ckpt["edges"]
+edges = edges.numpy() if torch.is_tensor(edges) else np.asarray(edges)  # (2,E)
 C = ckpt["channels"]
 tgt = np.asarray(ckpt["target"], dtype=np.float32)       # (N,4)
 
@@ -39,12 +43,16 @@ w1 = model_w["net.0.weight"].cpu().numpy().astype(np.float32)  # (128, 3C)
 b1 = model_w["net.0.bias"].cpu().numpy().astype(np.float32)    # (128,)
 w2 = model_w["net.2.weight"].cpu().numpy().astype(np.float32)  # (C, 128)
 
-# seed = node nearest the heart center (works for any graph)
-seed = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
+# prefer the seed node training used; fall back to nearest cube centre
+if "center" in ckpt:
+    seed = int(ckpt["center"])
+else:
+    seed = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
 
 bundle = {
     "n": int(pos.shape[0]),
     "channels": int(C),
+    "dim": dim,
     "alive_alpha_idx": 3,
     "pos": pos.reshape(-1).tolist(),
     "csr_off": off.tolist(),
@@ -54,6 +62,7 @@ bundle = {
     "w2": w2.reshape(-1).tolist(),
     "target": tgt.reshape(-1).tolist(),
     "seed": seed,
+    "target_name": ckpt.get("target_name", ""),
 }
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 with open(a.out, "w") as f:
@@ -61,4 +70,4 @@ with open(a.out, "w") as f:
     f.write(json.dumps(bundle))
     f.write(";\n")
 print(f"wrote {a.out}  ({os.path.getsize(a.out)//1024} KB, {bundle['n']} nodes, "
-      f"{len(bundle['csr_src'])} directed edges, from {a.checkpoint})")
+      f"dim={dim}, {len(bundle['csr_src'])} directed edges, from {a.checkpoint})")

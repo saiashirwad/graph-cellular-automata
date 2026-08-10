@@ -90,19 +90,43 @@ Every 1000 steps the probe grows the heart, punches a fixed 25% hole, heals for
 
 ```sh
 uv run python scripts/train.py --animate --tag _dmg          # growth.gif
+uv run python scripts/train.py --animate --target bunny --tag _pc   # from ckpt only
 uv run python scripts/eval_damage.py runs/checkpoint.pt runs/checkpoint_dmg.pt
 uv run python scripts/export_web.py                          # web/bundle.js
 open web/index.html
 ```
+
+`--animate` reloads the checkpoint as-is (positions, edges, seed). You do not need
+to re-pass `--nodes` / re-fetch point clouds to render a gif.
 
 `eval_damage.py` gives every damage shape its own seed and reseeds the model's
 random updates per checkpoint, so it compares models rather than luck. Expect a
 noise floor of a few thousandths on MPS, where `index_add_` uses atomics and
 the summation order varies between runs.
 
+## 3-d surface point clouds
+
+The procedural sphere/torus/jack paint a thin shell inside a random cube of
+nodes, so only about a fifth of the graph is the pattern. For demos that look
+like a real object, sample a mesh surface so every node sits on the shape:
+
+```sh
+uv run python scripts/fetch_pointclouds.py          # bunny, spot, teapot, armadillo
+uv run python -u scripts/train.py --target bunny --damage 3 --nodes 1536 --tag _pc
+uv run python scripts/train.py --animate --target bunny --tag _pc
+uv run python scripts/export_web.py runs/checkpoint_bunny_pc.pt \
+    --out web/bundle_bunny.js --var BUNDLE_BUNNY
+```
+
+Then uncomment the matching `<script src="bundle_bunny.js">` in
+`web/index.html`. The Bunny button shows up on its own. Colour is baked from
+surface normals (hue by direction), so a regrown ear comes back in a colour
+you can check. Same recipe works for `spot`, `teapot`, and `armadillo`.
+
 ## Things to try
 
 - swap `heart_target` in `src/gnca/targets.py` for your own pattern
+- train a surface cloud (`--target bunny`) for a denser 3-d demo
 - other graphs: grids with holes, small-world rings, trees
 - max aggregation instead of mean
 - cut edges during training, not just nodes, so the rule survives a rewired

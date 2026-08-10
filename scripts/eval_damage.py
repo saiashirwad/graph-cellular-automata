@@ -56,7 +56,10 @@ def run(ckpt_path):
     target = target.to(device)
     model = GraphNCA(channels=C).to(device)
     model.load_state_dict(ckpt["model"])
-    center = int(np.argmin(((pos - [0.5, 0.45]) ** 2).sum(1)))
+    # newer checkpoints carry their own seed node; older ones only had a heart
+    center = ckpt.get("center")
+    if center is None:
+        center = int(np.argmin(((pos - [0.5, 0.45]) ** 2).sum(1)))
     live_target = float((target_np[:, 3] > 0.5).mean())
 
     def stats(x):

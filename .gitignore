@@ -9,6 +9,9 @@ runs/
 *.log
 nohup.out
 
+# Raw mesh downloads (sampled clouds in data/pointclouds/ are kept)
+data/meshes/
+
 # Local deploy state
 .wrangler/
 wrangler.toml

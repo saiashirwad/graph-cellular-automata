@@ -216,9 +216,16 @@
 
   /* --- the demo column: deck / canvas / filmstrip --- */
   #viewport {
+    /* the canvas is square because node positions live in [0,1]^2; stretching
+       it wide would only letterbox. So take the height instead. */
+    --chrome:250px;                     /* deck, caption, hint, footer */
+    --strip:95px;                       /* filmstrip, 0 when it is hidden */
     display:flex; flex-direction:column;
-    width:min(calc(100vh - 380px), calc(100vw - 380px), 780px);
+    width:min(calc(100vh - var(--chrome) - var(--strip)),
+              calc(100vw - 380px), 1100px);
   }
+  #viewport.nostrip { --strip:0px; }
+  #viewport.nostrip #chanbar { display:none; }
 
   /* deck: transport + live readout, sitting on top of the canvas */
   #deck { display:flex; align-items:center; margin-bottom:9px; }
@@ -312,6 +319,11 @@
       <button data-model="heart" class="active">Heart</button>
       <button data-model="healer" title="same target, trained on damaged patterns">Heart (regen)</button>
       <button data-model="ring">Ring</button>
+      <!-- 3-d surface models: buttons show once the matching bundle_*.js is present -->
+      <button data-model="bunny" title="Stanford bunny surface point cloud">Bunny</button>
+      <button data-model="spot" title="Spot the cow surface point cloud">Spot</button>
+      <button data-model="teapot" title="Utah teapot surface point cloud">Teapot</button>
+      <button data-model="armadillo" title="Armadillo surface point cloud">Armadillo</button>
     </div>
   </header>
 
@@ -406,6 +418,14 @@
 <script src="pca.js"></script>
 <script src="bundle_ws.js"></script>
 <script src="bundle_dmg.js"></script>
+<!-- 3-d surface models: uncomment after
+     uv run python scripts/export_web.py runs/checkpoint_bunny.pt \
+       --out web/bundle_bunny.js --var BUNDLE_BUNNY
+     (same for spot / teapot / armadillo). Buttons appear automatically. -->
+<!-- <script src="bundle_bunny.js"></script> -->
+<!-- <script src="bundle_spot.js"></script> -->
+<!-- <script src="bundle_teapot.js"></script> -->
+<!-- <script src="bundle_armadillo.js"></script> -->
 <script src="demo.js"></script>
 </body>
 </html>
