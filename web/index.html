@@ -316,14 +316,8 @@
     <h1>GRAPH NEURAL <em>CA</em></h1>
     <p>a living graph &mdash; one learned rule, running in your browser</p>
     <div id="models">
-      <button data-model="heart" class="active">Heart</button>
-      <button data-model="healer" title="same target, trained on damaged patterns">Heart (regen)</button>
-      <button data-model="ring">Ring</button>
-      <!-- 3-d surface models: buttons show once the matching bundle_*.js is present -->
-      <button data-model="bunny" title="Stanford bunny surface point cloud">Bunny</button>
-      <button data-model="spot" title="Spot the cow surface point cloud">Spot</button>
-      <button data-model="teapot" title="Utah teapot surface point cloud">Teapot</button>
-      <button data-model="armadillo" title="Armadillo surface point cloud">Armadillo</button>
+      <button data-model="bunny" class="active" title="Stanford bunny surface point cloud">Bunny</button>
+      <!-- more shapes later: train + export_web.py, then add button + script tag -->
     </div>
   </header>
 
@@ -414,18 +408,8 @@
     rel="noopener">Growing Neural CA</a>, on an irregular graph</div>
 </main>
 
-<script src="bundle.js"></script>
+<script src="bundle_bunny.js"></script>
 <script src="pca.js"></script>
-<script src="bundle_ws.js"></script>
-<script src="bundle_dmg.js"></script>
-<!-- 3-d surface models: uncomment after
-     uv run python scripts/export_web.py runs/checkpoint_bunny.pt \
-       --out web/bundle_bunny.js --var BUNDLE_BUNNY
-     (same for spot / teapot / armadillo). Buttons appear automatically. -->
-<!-- <script src="bundle_bunny.js"></script> -->
-<!-- <script src="bundle_spot.js"></script> -->
-<!-- <script src="bundle_teapot.js"></script> -->
-<!-- <script src="bundle_armadillo.js"></script> -->
 <script src="demo.js"></script>
 </body>
 </html>

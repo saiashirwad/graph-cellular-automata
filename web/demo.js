@@ -240,6 +240,8 @@ function loadBundle(b) {
   setLayout(layout);  // re-apply caps for current layout
   renderWeights();
   seed();
+  if (typeof setStory === "function")
+    setStory("A living graph: " + N + " cells on a surface. One seed, one rule.");
 }
 
 function seed() {
@@ -941,35 +943,23 @@ function runExperiment(k) {
   ex.run();
   setStory(ex.story);
 }
-setStory("A living graph: 1024 cells, one learned rule. Poke it.");
+setStory("A living graph: one seed grows a surface. Poke it.");
 
 // re-render charts when an analysis section is opened (canvases have no
 // layout size while the <details> is closed)
 document.querySelectorAll("details").forEach(d =>
   d.addEventListener("toggle", () => { renderWeights(); drawTrace(); }));
 
-// model picker. "healer" is the same heart target under a rule trained on
-// damaged patterns; flip between it and "heart" to see one heal and one stall.
-// Optional 3-d surface bundles appear only when their script tag is present
-// (top-level const is visible to typeof here, not on window).
-const MODELS = { heart: BUNDLE, ring: BUNDLE_WS };
-if (typeof BUNDLE_DMG !== "undefined") MODELS.healer = BUNDLE_DMG;
-if (typeof BUNDLE_BUNNY !== "undefined") MODELS.bunny = BUNDLE_BUNNY;
-if (typeof BUNDLE_SPOT !== "undefined") MODELS.spot = BUNDLE_SPOT;
-if (typeof BUNDLE_TEAPOT !== "undefined") MODELS.teapot = BUNDLE_TEAPOT;
-if (typeof BUNDLE_ARMADILLO !== "undefined") MODELS.armadillo = BUNDLE_ARMADILLO;
-// hide picker buttons whose bundle is missing
+// model picker — surface clouds for now (bunny). Add more after train+export.
+const MODELS = { bunny: BUNDLE_BUNNY };
 document.querySelectorAll("#models button").forEach(btn => {
   const id = btn.dataset.model;
   if (id && !MODELS[id]) btn.hidden = true;
-});
-
-document.querySelectorAll("#models button").forEach(btn => {
   btn.onclick = () => {
     if (!MODELS[btn.dataset.model]) return;
     document.querySelectorAll("#models button").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    loadBundle(MODELS[btn.dataset.model] || BUNDLE);
+    loadBundle(MODELS[btn.dataset.model]);
   };
 });
 
@@ -1019,5 +1009,5 @@ window.addEventListener("keydown", e => {
 
 // ---- init ----
 resize();
-loadBundle(BUNDLE);
+loadBundle(MODELS.bunny);
 requestAnimationFrame(loop);
