@@ -4,7 +4,7 @@ Distill's [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca
 but on a graph instead of a grid. One seed node grows into the whole pattern
 using only messages between neighbors.
 
-Live demo: **[gca.texoport.in](https://gca.texoport.in/)** — Stanford bunny on a
+Live demo at **[gca.texoport.in](https://gca.texoport.in/)**: Stanford bunny on a
 surface point cloud (drag to orbit, click to wound).
 
 | Target | Rollout |
@@ -60,7 +60,7 @@ open web/index.html
 `--animate` reloads the checkpoint as-is (positions, edges, seed). You do not
 need matching `--nodes` or the raw meshes just to render a gif.
 
-Keep `-u` if you redirect logs. Watch `probe_healed` more than loss — loss can
+Keep `-u` if you redirect logs. Watch `probe_healed` more than loss. Loss can
 fall while regeneration stays broken.
 
 Other shapes after fetch: `--target spot|teapot|armadillo` with similar knobs
@@ -94,7 +94,7 @@ npx wrangler pages deploy web --project-name graph-cellular-automata
 ## Edge damage: a wound a grid cannot have
 
 A grid CA breaks one way: kill cells. A graph CA breaks two: kill nodes, or
-cut edges. The two heal very differently.
+cut edges. The two heal differently.
 
 Same bunny checkpoint, same seeds, 200 steps to grow, 200 to heal. Node
 damage zeroes a fraction of the pattern's nodes; edge damage removes the same
@@ -112,10 +112,10 @@ rule runs on the broken graph. Mean of 5 seeds:
 ![edge vs node damage](docs/media/edge_vs_node.png)
 
 Zeroing 70% of the bunny regrows to 0.023. Cutting 70% of its edges rots the
-pattern while every node stays alive — the rule destabilizes in place, no
-cell dies, and the wound a grid CA cannot even express is the one that kills
-it. Reproduce: `uv run python scripts/eval_edges.py` (writes the table, the
-CSV, and the plot).
+pattern in place while every node stays alive. A grid CA cannot express this
+kind of wound, and it is the one that kills the pattern. Reproduce:
+`uv run python scripts/eval_edges.py` (writes the table, the CSV, and the
+plot).
 
 ## Things to try
 
@@ -124,6 +124,6 @@ CSV, and the plot).
 - train on a fresh random graph every episode
 - swap `heart_target` / bake your own point cloud
 
-The rule does not learn “the bunny.” It learns the bunny **on this graph** —
-that is what the edge table above measures. A grid CA cannot fail that way,
-and that is the interesting part.
+The rule learns the bunny on this graph, not the bunny in the abstract. That
+dependence is what the edge table above measures, and it is a failure mode a
+grid CA does not have.
