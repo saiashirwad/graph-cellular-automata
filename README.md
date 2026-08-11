@@ -37,9 +37,12 @@ uv run python -u scripts/train.py \
 uv run python scripts/train.py --animate --target bunny --tag _pc
 uv run python scripts/eval_damage.py runs/checkpoint_bunny_pc.pt --grow 160 --heal 200
 uv run python scripts/export_web.py runs/checkpoint_bunny_pc.pt \
-  --out web/bundle_bunny.js --var BUNDLE_BUNNY
+  --out web/artifacts/bunny.js
+cd web && npm run build                # refresh demo.js after export
 open web/index.html
 ```
+
+Demo layout and rebuild notes: [`web/README.md`](web/README.md).
 
 - Watch `probe_healed`, not loss: loss can fall while regeneration stays broken.
 - Other targets: `spot`, `teapot`, `armadillo`, and 2-d patterns (`heart`,

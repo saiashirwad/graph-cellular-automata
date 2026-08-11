@@ -1,0 +1,16 @@
+{
+  "name": "gnca-web",
+  "private": true,
+  "type": "module",
+  "description": "Browser demo: ES modules under js/, bundled to demo.js for file://.",
+  "scripts": {
+    "build": "esbuild js/main.js --bundle --format=iife --outfile=demo.js --legal-comments=none",
+    "watch": "esbuild js/main.js --bundle --format=iife --outfile=demo.js --legal-comments=none --watch"
+  },
+  "dependencies": {
+    "typegpu": "0.11.9"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25.0"
+  }
+}

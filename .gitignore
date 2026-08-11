@@ -17,5 +17,9 @@ data/meshes/
 .wrangler/
 wrangler.toml
 
+# Web build deps (checked-in artifact: web/demo.js)
+web/node_modules/
+
 # macOS
 .DS_Store
+web/gpu-engine/node_modules/

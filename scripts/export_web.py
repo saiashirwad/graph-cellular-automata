@@ -1,12 +1,16 @@
-"""Export a trained checkpoint into a browser-loadable bundle (web/bundle.js).
+"""Export a trained checkpoint into a browser-loadable ESM artifact.
 
-    uv run python scripts/export_web.py [runs/checkpoint.pt]
-    uv run python scripts/export_web.py runs/checkpoint_dmg.pt \
-        --out web/bundle_dmg.js --var BUNDLE_DMG   # a second model in the demo
+    uv run python scripts/export_web.py runs/checkpoint_bunny_pc.pt
+    uv run python scripts/export_web.py runs/checkpoint_bunny--deg.pt \
+        --out web/artifacts/bunny.js
 
-Writes a JS file:  const BUNDLE = { n, channels, pos, csr_off, csr_src,
-                                    w1, b1, w2, seed, target, alive_alpha_idx }
-Pure JS reads this -- no server, no build step, just open web/index.html.
+Writes an ES module:
+    export default { n, channels, hidden, dim, pos, csr_off, csr_src, deg,
+                     w1, b1, w2, gate_w, gate_b, seed, target, alive_alpha_idx }
+
+The browser rule matches src/gnca/model.py (degree feature + diffusion gate).
+Older checkpoints are zero-padded: missing degree column and missing gate
+become identity (gate zeros => 2*sigmoid(0) = 1).
 """
 import argparse
 import json
@@ -17,8 +21,9 @@ import torch
 
 p = argparse.ArgumentParser()
 p.add_argument("checkpoint", nargs="?", default="runs/checkpoint.pt")
-p.add_argument("--out", default="web/bundle.js")
-p.add_argument("--var", default="BUNDLE", help="the const the JS file declares")
+p.add_argument("--out", default="web/artifacts/bunny.js")
+p.add_argument("--hidden", type=int, default=None,
+               help="override H (default: read from weight shape)")
 a = p.parse_args()
 
 ckpt = torch.load(a.checkpoint, weights_only=False)
@@ -26,55 +31,77 @@ pos = np.asarray(ckpt["pos"], dtype=np.float32)          # (N, 2) or (N, 3)
 if pos.ndim != 2 or pos.shape[1] not in (2, 3):
     raise SystemExit(f"expected pos (N,2|3), got {pos.shape}")
 dim = int(pos.shape[1])
+n = int(pos.shape[0])
 edges = ckpt["edges"]
 edges = edges.numpy() if torch.is_tensor(edges) else np.asarray(edges)  # (2,E)
-C = ckpt["channels"]
+C = int(ckpt["channels"])
 tgt = np.asarray(ckpt["target"], dtype=np.float32)       # (N,4)
 
 # ---- build CSR adjacency sorted by destination node (for mean aggregation) ----
 dst = np.argsort(edges[1])
 src_by_dst = edges[0][dst]
-deg = np.bincount(edges[1], minlength=pos.shape[0])
-off = np.concatenate([[0], np.cumsum(deg)]).astype(np.int32)
+deg = np.bincount(edges[1], minlength=n).astype(np.float32)
+off = np.concatenate([[0], np.cumsum(deg.astype(np.int64))]).astype(np.int32)
 
-# ---- MLP weights: net = Linear(3C,128) -> ReLU -> Linear(128,C, bias=False) ----
+# ---- MLP weights: Linear(3C+1, H) -> ReLU -> Linear(H, C, bias=False) ----
 model_w = ckpt["model"]
-w1t = model_w["net.0.weight"]
-if w1t.shape[1] != 3 * C:
+w1t = model_w["net.0.weight"].cpu().numpy().astype(np.float32)   # (H, in)
+b1 = model_w["net.0.bias"].cpu().numpy().astype(np.float32)      # (H,)
+w2 = model_w["net.2.weight"].cpu().numpy().astype(np.float32)    # (C, H)
+H = int(a.hidden or w1t.shape[0])
+in_full = 3 * C + 1
+if w1t.shape[1] < in_full:
+    # pre-degree checkpoint: pad zero columns on the right
+    pad = np.zeros((H, in_full - w1t.shape[1]), dtype=np.float32)
+    w1 = np.concatenate([w1t, pad], axis=1)
+elif w1t.shape[1] == in_full:
+    w1 = w1t
+else:
     raise SystemExit(
-        f"checkpoint percept is {w1t.shape[1]} inputs wide, but the web demo "
-        f"implements the pre-degree-feature rule (3C={3 * C}, no gate). Export "
-        "a pre-#17 checkpoint, or teach demo.js the degree feature + gate first."
+        f"unexpected first-layer width {w1t.shape[1]} (want {in_full} or less)"
     )
-w1 = w1t.cpu().numpy().astype(np.float32)                      # (128, 3C)
-b1 = model_w["net.0.bias"].cpu().numpy().astype(np.float32)    # (128,)
-w2 = model_w["net.2.weight"].cpu().numpy().astype(np.float32)  # (C, 128)
 
-# prefer the seed node training used; fall back to nearest cube centre
+# gate: Linear(3C, C). Missing => zeros => identity conductivity.
+if "gate.weight" in model_w:
+    gate_w = model_w["gate.weight"].cpu().numpy().astype(np.float32)  # (C, 3C)
+    gate_b = model_w["gate.bias"].cpu().numpy().astype(np.float32)    # (C,)
+else:
+    gate_w = np.zeros((C, 3 * C), dtype=np.float32)
+    gate_b = np.zeros((C,), dtype=np.float32)
+
 if "center" in ckpt:
     seed = int(ckpt["center"])
 else:
     seed = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
 
 bundle = {
-    "n": int(pos.shape[0]),
-    "channels": int(C),
+    "n": n,
+    "channels": C,
+    "hidden": H,
     "dim": dim,
     "alive_alpha_idx": 3,
     "pos": pos.reshape(-1).tolist(),
     "csr_off": off.tolist(),
     "csr_src": src_by_dst.astype(np.int32).tolist(),
+    "deg": deg.tolist(),
     "w1": w1.reshape(-1).tolist(),
     "b1": b1.tolist(),
     "w2": w2.reshape(-1).tolist(),
+    "gate_w": gate_w.reshape(-1).tolist(),
+    "gate_b": gate_b.tolist(),
     "target": tgt.reshape(-1).tolist(),
     "seed": seed,
     "target_name": ckpt.get("target_name", ""),
+    "percept": "self+mean+gated_diff+log1p_deg",
 }
 os.makedirs(os.path.dirname(a.out) or ".", exist_ok=True)
 with open(a.out, "w") as f:
-    f.write(f"// auto-generated by export_web.py -- do not edit\nconst {a.var} = ")
+    f.write("// auto-generated by export_web.py -- do not edit\n")
+    f.write("export default ")
     f.write(json.dumps(bundle))
     f.write(";\n")
-print(f"wrote {a.out}  ({os.path.getsize(a.out)//1024} KB, {bundle['n']} nodes, "
-      f"dim={dim}, {len(bundle['csr_src'])} directed edges, from {a.checkpoint})")
+print(
+    f"wrote {a.out}  ({os.path.getsize(a.out)//1024} KB, {n} nodes, "
+    f"dim={dim}, H={H}, inW={in_full}, gate={'yes' if 'gate.weight' in model_w else 'identity'}, "
+    f"{len(bundle['csr_src'])} directed edges, from {a.checkpoint})"
+)
