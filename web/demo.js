@@ -345,6 +345,52 @@
     return `<i class="sw"><b style="background:linear-gradient(90deg,${stops})"></b>${lab}</i>`;
   }
 
+  // js/render/shell.js
+  function isOrbit3d(ctx) {
+    return ctx.dim > 2 && ctx.layoutId !== "map";
+  }
+  function computeNormals(n, pos, dim, off, src) {
+    const nor = new Float32Array(n * 3);
+    for (let i = 0; i < n; i++) {
+      let mx = 0, my = 0, mz = 0, cnt = 0;
+      for (let e = off[i]; e < off[i + 1]; e++) {
+        const j = src[e], p2 = j * dim;
+        mx += pos[p2];
+        my += pos[p2 + 1];
+        mz += dim > 2 ? pos[p2 + 2] : 0.5;
+        cnt++;
+      }
+      if (!cnt) {
+        nor[i * 3 + 2] = 1;
+        continue;
+      }
+      mx /= cnt;
+      my /= cnt;
+      mz /= cnt;
+      const p = i * dim;
+      let nx = pos[p] - mx, ny = pos[p + 1] - my;
+      let nz = (dim > 2 ? pos[p + 2] : 0.5) - mz;
+      const len = Math.hypot(nx, ny, nz) || 1;
+      nor[i * 3] = nx / len;
+      nor[i * 3 + 1] = ny / len;
+      nor[i * 3 + 2] = nz / len;
+    }
+    return nor;
+  }
+  function facing(nor, i, rotY, rotX) {
+    if (!nor) return 1;
+    const nx = nor[i * 3], ny = nor[i * 3 + 1], nz = nor[i * 3 + 2];
+    const cy = Math.cos(rotY), sy = Math.sin(rotY);
+    const cx = Math.cos(rotX), sx = Math.sin(rotX);
+    const x1 = nx * cy + nz * sy, z1 = -nx * sy + nz * cy;
+    const z2 = ny * sx + z1 * cx;
+    return z2;
+  }
+  function onFrontShell(ctx, i) {
+    if (!isOrbit3d(ctx)) return true;
+    return facing(ctx.normals, i, ctx.rotY, ctx.rotX) > -0.05;
+  }
+
   // js/render/views.js
   function nearestCentroid(x, i, c, umap) {
     const cent = umap.centroids, K = umap.k, H = umap.hdim;
@@ -438,7 +484,8 @@
   function paintRgb(g, ctx, geom) {
     const { n, c, alphaIdx: A, x, glow } = ctx;
     const { px, py, dispPos, dispD, rCore, rHalo } = geom;
-    if (glow) {
+    const shell = isOrbit3d(ctx);
+    if (glow && !shell) {
       g.globalCompositeOperation = "lighter";
       for (let i = 0; i < n; i++) {
         const a = x[i * c + A];
@@ -456,6 +503,7 @@
     }
     g.globalCompositeOperation = "source-over";
     for (let i = 0; i < n; i++) {
+      if (shell && !onFrontShell(ctx, i)) continue;
       const a = x[i * c + A];
       if (a < 0.05) continue;
       g.fillStyle = `rgba(${cl(x[i * c]) * 255 | 0},${cl(x[i * c + 1]) * 255 | 0},${cl(x[i * c + 2]) * 255 | 0},${cl(a).toFixed(3)})`;
@@ -473,6 +521,7 @@
   function paintAct(g, ctx, geom) {
     const { n, c, alphaIdx: A, x, act } = ctx;
     const { px, py, dispPos, rCore } = geom;
+    const shell = isOrbit3d(ctx);
     let sum = 0, cnt = 0;
     for (let i = 0; i < n; i++) if (act[i] > 1e-8) {
       sum += act[i];
@@ -480,6 +529,7 @@
     }
     const scale = 3 * (cnt ? sum / cnt : 1e-6);
     for (let i = 0; i < n; i++) {
+      if (shell && !onFrontShell(ctx, i)) continue;
       const v = cl(Math.sqrt(act[i] / scale));
       if (v < 0.02 && x[i * c + A] < 0.05) continue;
       const R = 60 + 195 * v, G = 50 + 90 * v, B = 140 + 35 * v;
@@ -493,7 +543,8 @@
     if (!ctx.pca) return;
     const { n, c, alphaIdx: A, x, glow, pca } = ctx;
     const { px, py, dispPos, dispD, rCore, rHalo } = geom;
-    if (glow) {
+    const shell = isOrbit3d(ctx);
+    if (glow && !shell) {
       g.globalCompositeOperation = "lighter";
       for (let i = 0; i < n; i++) {
         const a = x[i * c + A];
@@ -511,6 +562,7 @@
     }
     g.globalCompositeOperation = "source-over";
     for (let i = 0; i < n; i++) {
+      if (shell && !onFrontShell(ctx, i)) continue;
       const a = x[i * c + A];
       if (a < 0.05) continue;
       const [R, G, B] = pcaProj(x, i, c, pca);
@@ -533,8 +585,10 @@
     if (!ctx.umap) return;
     const { n, c, alphaIdx: A, x, umap } = ctx;
     const { px, py, dispPos, dispD, rCore, dpr } = geom;
+    const shell = isOrbit3d(ctx);
     const cols = umap.colors;
     for (let i = 0; i < n; i++) {
+      if (shell && !onFrontShell(ctx, i)) continue;
       const a = x[i * c + A];
       if (a < 0.05) continue;
       const best = nearestCentroid(x, i, c, umap);
@@ -557,12 +611,14 @@
   function paintChannel(g, ctx, geom, c0) {
     const { n, c, alphaIdx: A, x } = ctx;
     const { px, py, dispPos, rCore, dpr } = geom;
+    const shell = isOrbit3d(ctx);
     let s = 1e-6;
     for (let i = 0; i < n; i++) {
       const v = Math.abs(x[i * c + c0]);
       if (v > s) s = v;
     }
     for (let i = 0; i < n; i++) {
+      if (shell && !onFrontShell(ctx, i)) continue;
       if (x[i * c + A] < 0.05) continue;
       const X = px(dispPos[i * 2]), Y = py(dispPos[i * 2 + 1]);
       g.fillStyle = "rgba(255,255,255,0.10)";
@@ -648,6 +704,7 @@
     const edges = edgesFromCSR(app.n, app.off, app.src);
     app.fullEdges = edges.fullEdges;
     app.activeMask = edges.activeMask;
+    app.normals = computeNormals(app.n, app.pos, app.dim, app.off, app.src);
     app.x = new Float32Array(app.n * app.c);
     app.act = new Float32Array(app.n);
     app.t = 0;
@@ -15833,28 +15890,48 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       const { n, c, alphaIdx: A, x, off, src, tgt, dim } = app;
       const { dispPos, dispD, showEdges, showGhost, viewId, views } = app;
       ctx2d.clearRect(0, 0, CW, CH);
+      const shell = isOrbit3d(app);
       if (showEdges) {
         ctx2d.lineWidth = Math.max(1, 0.5 * DPR);
         ctx2d.strokeStyle = "rgba(255,255,255,0.09)";
         ctx2d.beginPath();
-        for (let i = 0; i < n; i++)
+        for (let i = 0; i < n; i++) {
+          if (shell && !onFrontShell(app, i)) continue;
           for (let k = off[i]; k < off[i + 1]; k++) {
             const j = src[k];
             if (j <= i) continue;
+            if (shell && !onFrontShell(app, j)) continue;
             ctx2d.moveTo(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]));
             ctx2d.lineTo(px(dispPos[j * 2]), py(dispPos[j * 2 + 1]));
           }
+        }
         ctx2d.stroke();
       }
-      if (showGhost && viewId === "rgb" && (app.layoutId === "space" || dim > 2)) {
+      if (showGhost && viewId === "rgb") {
         ctx2d.globalCompositeOperation = "source-over";
-        for (let i = 0; i < n; i++) {
-          const a = tgt[i * 4 + 3];
-          if (a < 0.05) continue;
-          ctx2d.fillStyle = `rgba(${tgt[i * 4] * 255 | 0},${tgt[i * 4 + 1] * 255 | 0},${tgt[i * 4 + 2] * 255 | 0},0.14)`;
-          ctx2d.beginPath();
-          ctx2d.arc(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]), 2.4 * DPR, 0, 6.2832);
-          ctx2d.fill();
+        if (shell) {
+          for (let i = 0; i < n; i++) {
+            if (!onFrontShell(app, i)) continue;
+            if (tgt[i * 4 + 3] < 0.15) continue;
+            if (x[i * c + A] > 0.1) continue;
+            const X = px(dispPos[i * 2]), Y = py(dispPos[i * 2 + 1]);
+            ctx2d.fillStyle = "rgba(0,0,0,0.55)";
+            ctx2d.beginPath();
+            ctx2d.arc(X, Y, 2.8 * DPR, 0, 6.2832);
+            ctx2d.fill();
+            ctx2d.strokeStyle = "rgba(255,255,255,0.22)";
+            ctx2d.lineWidth = 1 * DPR;
+            ctx2d.stroke();
+          }
+        } else if (app.layoutId === "space" || dim > 2) {
+          for (let i = 0; i < n; i++) {
+            const a = tgt[i * 4 + 3];
+            if (a < 0.05) continue;
+            ctx2d.fillStyle = `rgba(${tgt[i * 4] * 255 | 0},${tgt[i * 4 + 1] * 255 | 0},${tgt[i * 4 + 2] * 255 | 0},0.14)`;
+            ctx2d.beginPath();
+            ctx2d.arc(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]), 2.4 * DPR, 0, 6.2832);
+            ctx2d.fill();
+          }
         }
       }
       if (app.layoutId === "map" && app.umap?.pts) {
