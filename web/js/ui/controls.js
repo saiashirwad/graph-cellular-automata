@@ -2,7 +2,7 @@ import { availableLayouts, findLayout, spaceIsFlat } from "../layout/index.js";
 import { findView } from "../render/views.js";
 import { updateLegend } from "../render/draw.js";
 import { renderWeights } from "../render/charts.js";
-import { seed, clearAll, paintDamage, applyEdgeCut, applyEdgeRestore } from "../model.js";
+import { seed, clearAll, paintDamage, softSigh, applyEdgeCut, applyEdgeRestore } from "../model.js";
 
 export const SPEEDS = [1 / 60, 1 / 20, 1 / 8, 1 / 4, 1 / 2, 1, 2, 4, 8];
 
@@ -191,12 +191,12 @@ export function wireControls(app, hooks) {
 
   // pointer
   const cv = $("c");
+  let lastSigh = 0;
   cv.addEventListener("pointerdown", e => {
     app.ptr = hooks.canvasPos(e);
     if (spaceIsFlat(app)) {
       app.drawing = true;
-      paintDamage(app, app.ptr);
-      app.ripples.push({ x: app.ptr.x, y: app.ptr.y, t0: performance.now(), col: "255,111,145" });
+      if (paintDamage(app, app.ptr)) softSigh(app, app.ptr.x, app.ptr.y);
     } else {
       app.orbiting = true;
       app.moved = false;
@@ -214,13 +214,16 @@ export function wireControls(app, hooks) {
     }
     app.ptr = p;
     brushLabel();
-    if (app.drawing) paintDamage(app, p);
+    if (app.drawing) {
+      const n = paintDamage(app, p);
+      const t = performance.now();
+      if (n && t - lastSigh > 90) { softSigh(app, p.x, p.y); lastSigh = t; }
+    }
   });
   cv.addEventListener("pointerleave", () => { app.ptr = null; brushLabel(); });
   window.addEventListener("pointerup", () => {
     if (app.orbiting && !app.moved && app.ptr) {
-      paintDamage(app, app.ptr);
-      app.ripples.push({ x: app.ptr.x, y: app.ptr.y, t0: performance.now(), col: "255,111,145" });
+      if (paintDamage(app, app.ptr)) softSigh(app, app.ptr.x, app.ptr.y);
     }
     app.drawing = false;
     app.orbiting = false;

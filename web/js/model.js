@@ -87,6 +87,7 @@ export function applyBundle(app, bundle, extras = {}) {
   app.x = new Float32Array(app.n * app.c);
   app.act = new Float32Array(app.n);
   app.t = 0;
+  app.dying = [];
 
   // views depend on optional artifacts
   const named = buildViews(app);
@@ -106,23 +107,78 @@ export function seed(app) {
     app.x[app.seed * app.c + ch] = 1;
   app.act.fill(0);
   app.t = 0;
+  app.dying = [];
   app.engine?.markStateDirty();
 }
 
+/** Snapshot a living node into the soft dissolve list, then zero it. */
+function killNode(app, i, now) {
+  const { n, c, alphaIdx: A, x, dispPos } = app;
+  const a = x[i * c + A];
+  if (a < 0.08) {
+    for (let ch = 0; ch < c; ch++) x[i * c + ch] = 0;
+    return false;
+  }
+  if (!app.dying) app.dying = [];
+  // cap list so a huge brush stroke stays smooth
+  if (app.dying.length < 800) {
+    const cl = v => (v < 0 ? 0 : v > 1 ? 1 : v);
+    const phase = Math.sin(i * 12.9898) * 43758.5453;
+    const h = phase - Math.floor(phase);
+    app.dying.push({
+      x: dispPos[i * 2],
+      y: dispPos[i * 2 + 1],
+      dx: (h - 0.5) * 0.03,
+      dy: (Math.sin(i * 78.233) * 0.5 + 0.5 - 0.5) * 0.02,
+      R: (cl(x[i * c]) * 255) | 0,
+      G: (cl(x[i * c + 1]) * 255) | 0,
+      B: (cl(x[i * c + 2]) * 255) | 0,
+      a: cl(a),
+      r: 3.2 * (0.6 + 0.4 * cl(a)), // css-ish px; draw scales with dpr via arc
+      t0: now,
+      phase: h * 6.28,
+    });
+  }
+  for (let ch = 0; ch < c; ch++) x[i * c + ch] = 0;
+  return true;
+}
+
 export function clearAll(app) {
-  app.x.fill(0);
+  const now = performance.now();
+  // dissolve a sampling of live nodes so kill-all still feels soft
+  let live = 0;
+  for (let i = 0; i < app.n; i++) if (app.x[i * app.c + app.alphaIdx] > 0.1) live++;
+  const stride = Math.max(1, (live / 120) | 0);
+  let k = 0;
+  for (let i = 0; i < app.n; i++) {
+    if (app.x[i * app.c + app.alphaIdx] < 0.1) continue;
+    if ((k++ % stride) === 0) killNode(app, i, now);
+    else for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
+  }
   app.act.fill(0);
   app.engine?.markStateDirty();
 }
 
 export function paintDamage(app, p) {
   const r2 = app.brushR * app.brushR;
+  const now = performance.now();
+  let killed = 0;
   for (let i = 0; i < app.n; i++) {
     const dx = app.dispPos[i * 2] - p.x, dy = app.dispPos[i * 2 + 1] - p.y;
-    if (dx * dx + dy * dy < r2)
-      for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
+    if (dx * dx + dy * dy >= r2) continue;
+    if (killNode(app, i, now)) killed++;
   }
-  app.engine?.markStateDirty();
+  if (killed) app.engine?.markStateDirty();
+  return killed;
+}
+
+/** Soft breath at a display point — used instead of explosive ripples. */
+export function softSigh(app, x, y, col = "210,170,145") {
+  if (!app.ripples) app.ripples = [];
+  app.ripples.push({
+    x, y, t0: performance.now(), col,
+    ms: 1100, r0: 0.008, r1: 0.055, alpha: 0.22, width: 1.0,
+  });
 }
 
 export function applyEdgeCut(app, frac) {

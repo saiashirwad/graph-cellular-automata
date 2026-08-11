@@ -437,7 +437,7 @@
   }
   function paintRgb(g, ctx, geom) {
     const { n, c, alphaIdx: A, x, glow } = ctx;
-    const { px, py, dispPos, dispD, dpr, rCore, rHalo } = geom;
+    const { px, py, dispPos, dispD, rCore, rHalo } = geom;
     if (glow) {
       g.globalCompositeOperation = "lighter";
       for (let i = 0; i < n; i++) {
@@ -651,6 +651,7 @@
     app.x = new Float32Array(app.n * app.c);
     app.act = new Float32Array(app.n);
     app.t = 0;
+    app.dying = [];
     const named = buildViews(app);
     app.chanIds = channelIds(app.c, app.alphaIdx);
     app.chanViews = app.chanIds.map(channelView);
@@ -666,21 +667,78 @@
       app.x[app.seed * app.c + ch] = 1;
     app.act.fill(0);
     app.t = 0;
+    app.dying = [];
     app.engine?.markStateDirty();
   }
+  function killNode(app, i, now) {
+    const { n, c, alphaIdx: A, x, dispPos } = app;
+    const a = x[i * c + A];
+    if (a < 0.08) {
+      for (let ch = 0; ch < c; ch++) x[i * c + ch] = 0;
+      return false;
+    }
+    if (!app.dying) app.dying = [];
+    if (app.dying.length < 800) {
+      const cl2 = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
+      const phase = Math.sin(i * 12.9898) * 43758.5453;
+      const h = phase - Math.floor(phase);
+      app.dying.push({
+        x: dispPos[i * 2],
+        y: dispPos[i * 2 + 1],
+        dx: (h - 0.5) * 0.03,
+        dy: (Math.sin(i * 78.233) * 0.5 + 0.5 - 0.5) * 0.02,
+        R: cl2(x[i * c]) * 255 | 0,
+        G: cl2(x[i * c + 1]) * 255 | 0,
+        B: cl2(x[i * c + 2]) * 255 | 0,
+        a: cl2(a),
+        r: 3.2 * (0.6 + 0.4 * cl2(a)),
+        // css-ish px; draw scales with dpr via arc
+        t0: now,
+        phase: h * 6.28
+      });
+    }
+    for (let ch = 0; ch < c; ch++) x[i * c + ch] = 0;
+    return true;
+  }
   function clearAll(app) {
-    app.x.fill(0);
+    const now = performance.now();
+    let live = 0;
+    for (let i = 0; i < app.n; i++) if (app.x[i * app.c + app.alphaIdx] > 0.1) live++;
+    const stride = Math.max(1, live / 120 | 0);
+    let k = 0;
+    for (let i = 0; i < app.n; i++) {
+      if (app.x[i * app.c + app.alphaIdx] < 0.1) continue;
+      if (k++ % stride === 0) killNode(app, i, now);
+      else for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
+    }
     app.act.fill(0);
     app.engine?.markStateDirty();
   }
   function paintDamage(app, p) {
     const r2 = app.brushR * app.brushR;
+    const now = performance.now();
+    let killed = 0;
     for (let i = 0; i < app.n; i++) {
       const dx = app.dispPos[i * 2] - p.x, dy = app.dispPos[i * 2 + 1] - p.y;
-      if (dx * dx + dy * dy < r2)
-        for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
+      if (dx * dx + dy * dy >= r2) continue;
+      if (killNode(app, i, now)) killed++;
     }
-    app.engine?.markStateDirty();
+    if (killed) app.engine?.markStateDirty();
+    return killed;
+  }
+  function softSigh(app, x, y, col = "210,170,145") {
+    if (!app.ripples) app.ripples = [];
+    app.ripples.push({
+      x,
+      y,
+      t0: performance.now(),
+      col,
+      ms: 1100,
+      r0: 8e-3,
+      r1: 0.055,
+      alpha: 0.22,
+      width: 1
+    });
   }
   function applyEdgeCut(app, frac) {
     cutRandom(app.activeMask, frac);
@@ -15675,7 +15733,8 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
   }
 
   // js/render/draw.js
-  var RIPPLE_MS = 650;
+  var RIPPLE_MS = 900;
+  var DIE_MS = 1100;
   function createRenderer(cv) {
     const ctx2d = cv.getContext("2d");
     let CW = 600, CH = 600, S = 600, OX = 0, OY = 0, DPR = 1;
@@ -15706,19 +15765,67 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
         y: 0.5 - ((ev.clientY - r.top) * DPR - OY - S * 0.5) / (S * zoom)
       };
     }
+    function easeOut(u) {
+      const t = 1 - u;
+      return 1 - t * t * t;
+    }
     function drawRipples(app, now) {
       for (let i = app.ripples.length - 1; i >= 0; i--) {
         const r = app.ripples[i];
-        const u = (now - r.t0) / RIPPLE_MS;
-        if (u >= 1) {
+        const raw = (now - r.t0) / (r.ms || RIPPLE_MS);
+        if (raw >= 1) {
           app.ripples.splice(i, 1);
           continue;
         }
-        ctx2d.strokeStyle = `rgba(${r.col},${(0.5 * (1 - u)).toFixed(3)})`;
-        ctx2d.lineWidth = 1.5 * DPR;
+        const u = easeOut(raw);
+        const a = (1 - raw) * (r.alpha ?? 0.28);
+        ctx2d.strokeStyle = `rgba(${r.col},${a.toFixed(3)})`;
+        ctx2d.lineWidth = (r.width ?? 1.1) * DPR;
         ctx2d.beginPath();
-        ctx2d.arc(px(r.x), py(r.y), (0.015 + 0.12 * u) * S * zoom, 0, 6.2832);
+        ctx2d.arc(
+          px(r.x),
+          py(r.y),
+          ((r.r0 ?? 0.01) + (r.r1 ?? 0.07) * u) * S * zoom,
+          0,
+          6.2832
+        );
         ctx2d.stroke();
+      }
+    }
+    function drawDying(app, now) {
+      if (!app.dying?.length) return;
+      ctx2d.globalCompositeOperation = "source-over";
+      for (let i = app.dying.length - 1; i >= 0; i--) {
+        const d = app.dying[i];
+        const raw = (now - d.t0) / DIE_MS;
+        if (raw >= 1) {
+          app.dying.splice(i, 1);
+          continue;
+        }
+        const u = raw < 0.12 ? 0 : easeOut((raw - 0.12) / 0.88);
+        const fade = 1 - u;
+        const drift = 0.012 * u;
+        const X = px(d.x + d.dx * u * 0.4);
+        const Y = py(d.y + drift + d.dy * u * 0.25);
+        const rad = d.r * DPR * (1 - 0.75 * u) * (0.85 + 0.15 * Math.sin(raw * 6 + d.phase));
+        ctx2d.fillStyle = `rgba(${d.R},${d.G},${d.B},${(0.55 * fade * d.a).toFixed(3)})`;
+        ctx2d.beginPath();
+        ctx2d.arc(X, Y, Math.max(0.4 * DPR, rad), 0, 6.2832);
+        ctx2d.fill();
+        if (u > 0.05) {
+          ctx2d.strokeStyle = `rgba(${d.R},${d.G},${d.B},${(0.22 * fade).toFixed(3)})`;
+          ctx2d.lineWidth = 0.8 * DPR;
+          ctx2d.beginPath();
+          ctx2d.arc(X, Y, rad * (1.4 + 1.8 * u), 0, 6.2832);
+          ctx2d.stroke();
+        }
+        for (let m = 0; m < 2; m++) {
+          const ang = d.phase + m * 2.1;
+          const mx = X + Math.cos(ang) * rad * (1.2 + 2.5 * u);
+          const my = Y + Math.sin(ang) * rad * (1.2 + 2.5 * u) - 4 * DPR * u;
+          ctx2d.fillStyle = `rgba(${d.R},${d.G},${d.B},${(0.35 * fade * (1 - u)).toFixed(3)})`;
+          ctx2d.fillRect(mx, my, Math.max(1, 1.2 * DPR), Math.max(1, 1.2 * DPR));
+        }
       }
     }
     function draw(app, now) {
@@ -15767,6 +15874,7 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       };
       const view = findView(views, viewId);
       if (view?.paint) view.paint(ctx2d, app, geom);
+      drawDying(app, now);
       drawRipples(app, now);
       let hovered = -1;
       if (app.ptr && !app.drawing) {
@@ -15810,14 +15918,14 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
         hud.textContent = hovered >= 0 ? "node " + hovered + " \xB7 deg " + (off[hovered + 1] - off[hovered]) + " \xB7 \u03B1 " + x[hovered * c + A].toFixed(2) : typeof viewId === "number" ? viewId === 3 ? "\u03B1 \xB7 aliveness" : "channel " + viewId + " \xB7 meaning learned in training" : "";
       }
       if (app.ptr) {
-        ctx2d.strokeStyle = app.drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.35)";
+        ctx2d.strokeStyle = app.drawing ? "rgba(255,111,145,0.55)" : "rgba(255,255,255,0.35)";
         ctx2d.lineWidth = 1.2 * DPR;
         ctx2d.setLineDash([4 * DPR, 4 * DPR]);
         ctx2d.beginPath();
         ctx2d.arc(px(app.ptr.x), py(app.ptr.y), app.brushR * S * zoom, 0, 6.2832);
         ctx2d.stroke();
         ctx2d.setLineDash([]);
-        ctx2d.fillStyle = app.drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.7)";
+        ctx2d.fillStyle = app.drawing ? "rgba(255,111,145,0.7)" : "rgba(255,255,255,0.7)";
         ctx2d.fillRect(px(app.ptr.x) - DPR, py(app.ptr.y) - DPR, 2 * DPR, 2 * DPR);
       }
     }
@@ -15849,6 +15957,8 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       return zoom;
     }, get S() {
       return S;
+    }, get dpr() {
+      return DPR;
     } };
   }
   function loss(app) {
@@ -16181,12 +16291,12 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       setView(next === "chan" ? app.lastChan : next);
     };
     const cv = $("c");
+    let lastSigh = 0;
     cv.addEventListener("pointerdown", (e) => {
       app.ptr = hooks.canvasPos(e);
       if (spaceIsFlat(app)) {
         app.drawing = true;
-        paintDamage(app, app.ptr);
-        app.ripples.push({ x: app.ptr.x, y: app.ptr.y, t0: performance.now(), col: "255,111,145" });
+        if (paintDamage(app, app.ptr)) softSigh(app, app.ptr.x, app.ptr.y);
       } else {
         app.orbiting = true;
         app.moved = false;
@@ -16204,7 +16314,14 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       }
       app.ptr = p;
       brushLabel();
-      if (app.drawing) paintDamage(app, p);
+      if (app.drawing) {
+        const n = paintDamage(app, p);
+        const t = performance.now();
+        if (n && t - lastSigh > 90) {
+          softSigh(app, p.x, p.y);
+          lastSigh = t;
+        }
+      }
     });
     cv.addEventListener("pointerleave", () => {
       app.ptr = null;
@@ -16212,8 +16329,7 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
     });
     window.addEventListener("pointerup", () => {
       if (app.orbiting && !app.moved && app.ptr) {
-        paintDamage(app, app.ptr);
-        app.ripples.push({ x: app.ptr.x, y: app.ptr.y, t0: performance.now(), col: "255,111,145" });
+        if (paintDamage(app, app.ptr)) softSigh(app, app.ptr.x, app.ptr.y);
       }
       app.drawing = false;
       app.orbiting = false;
@@ -16245,13 +16361,11 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
     if (!alive.length) return;
     const ci = alive[Math.random() * alive.length | 0];
     const cx0 = app.dispPos[ci * 2], cy0 = app.dispPos[ci * 2 + 1];
-    for (let i = 0; i < app.n; i++) {
-      const dx = app.dispPos[i * 2] - cx0, dy = app.dispPos[i * 2 + 1] - cy0;
-      if (dx * dx + dy * dy < 0.12 * 0.12)
-        for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
-    }
-    app.engine?.markStateDirty();
-    app.ripples.push({ x: cx0, y: cy0, t0: performance.now(), col: "255,111,145" });
+    const prev = app.brushR;
+    app.brushR = 0.12;
+    paintDamage(app, { x: cx0, y: cy0 });
+    app.brushR = prev;
+    softSigh(app, cx0, cy0);
   }
   function createExperiments(app) {
     const storyEl = document.getElementById("story");
@@ -16339,13 +16453,6 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
         app.autoFf = true;
         app.setSpeedIdx?.(8);
         app.trace?.clear();
-        if (app.dispPos)
-          app.ripples.push({
-            x: app.dispPos[app.seed * 2],
-            y: app.dispPos[app.seed * 2 + 1],
-            t0: performance.now(),
-            col: "255,255,255"
-          });
       } else if (e.key === "k") {
         clearAll(app);
       } else if (e.key === "g") {
@@ -16423,6 +16530,7 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
       moved: false,
       downPos: null,
       ripples: [],
+      dying: [],
       // optional artifacts / engine
       pca: null,
       umap: null,
@@ -16455,25 +16563,11 @@ fn main(@builtin(global_invocation_id) gid : vec3u) {
         app.setSpeedIdx(SPEEDS.length - 1);
         trace.clear();
         spark.clear();
-        if (app.dispPos)
-          app.ripples.push({
-            x: app.dispPos[app.seed * 2],
-            y: app.dispPos[app.seed * 2 + 1],
-            t0: performance.now(),
-            col: "255,255,255"
-          });
       }
     };
     wireControls(app, hooks);
     const experiments = createExperiments(app);
     wireKeys(app, experiments);
-    if (app.dispPos)
-      app.ripples.push({
-        x: app.dispPos[app.seed * 2],
-        y: app.dispPos[app.seed * 2 + 1],
-        t0: performance.now(),
-        col: "255,255,255"
-      });
     const stT = document.getElementById("stT");
     const stA = document.getElementById("stA");
     const stL = document.getElementById("stL");

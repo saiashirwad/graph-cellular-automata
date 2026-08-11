@@ -1,4 +1,4 @@
-import { seed, clearAll, paintDamage, applyEdgeRestore } from "../model.js";
+import { seed, clearAll, paintDamage, softSigh, applyEdgeRestore } from "../model.js";
 import { alivePct } from "../render/draw.js";
 import { spaceIsFlat } from "../layout/index.js";
 
@@ -9,13 +9,11 @@ function woundRandom(app) {
   if (!alive.length) return;
   const ci = alive[(Math.random() * alive.length) | 0];
   const cx0 = app.dispPos[ci * 2], cy0 = app.dispPos[ci * 2 + 1];
-  for (let i = 0; i < app.n; i++) {
-    const dx = app.dispPos[i * 2] - cx0, dy = app.dispPos[i * 2 + 1] - cy0;
-    if (dx * dx + dy * dy < 0.12 * 0.12)
-      for (let ch = 0; ch < app.c; ch++) app.x[i * app.c + ch] = 0;
-  }
-  app.engine?.markStateDirty();
-  app.ripples.push({ x: cx0, y: cy0, t0: performance.now(), col: "255,111,145" });
+  const prev = app.brushR;
+  app.brushR = 0.12;
+  paintDamage(app, { x: cx0, y: cy0 });
+  app.brushR = prev;
+  softSigh(app, cx0, cy0);
 }
 
 export function createExperiments(app) {

@@ -1,0 +1,9 @@
+# Runtime is index.html + css/ + demo.js only.
+# Source, deps, and pre-bundle artifacts stay off the CDN.
+node_modules
+package.json
+package-lock.json
+README.md
+js
+artifacts
+.cfignore

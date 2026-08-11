@@ -46,6 +46,7 @@ function createAppShell() {
     moved: false,
     downPos: null,
     ripples: [],
+    dying: [],
     // optional artifacts / engine
     pca: null,
     umap: null,
@@ -81,13 +82,7 @@ async function main() {
       app.setSpeedIdx(SPEEDS.length - 1);
       trace.clear();
       spark.clear();
-      if (app.dispPos)
-        app.ripples.push({
-          x: app.dispPos[app.seed * 2],
-          y: app.dispPos[app.seed * 2 + 1],
-          t0: performance.now(),
-          col: "255,255,255",
-        });
+      // quiet reseed — no flash
     },
   };
 
@@ -95,14 +90,6 @@ async function main() {
   const experiments = createExperiments(app);
   wireKeys(app, experiments);
 
-  // seed ripple
-  if (app.dispPos)
-    app.ripples.push({
-      x: app.dispPos[app.seed * 2],
-      y: app.dispPos[app.seed * 2 + 1],
-      t0: performance.now(),
-      col: "255,255,255",
-    });
 
   const stT = document.getElementById("stT");
   const stA = document.getElementById("stA");

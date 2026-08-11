@@ -1,7 +1,8 @@
 import { findView } from "./views.js";
 import { findLayout } from "../layout/index.js";
 
-const RIPPLE_MS = 650;
+const RIPPLE_MS = 900;
+const DIE_MS = 1100;
 
 export function createRenderer(cv) {
   const ctx2d = cv.getContext("2d");
@@ -36,16 +37,69 @@ export function createRenderer(cv) {
     };
   }
 
+  function easeOut(u) {
+    const t = 1 - u;
+    return 1 - t * t * t;
+  }
+
   function drawRipples(app, now) {
     for (let i = app.ripples.length - 1; i >= 0; i--) {
       const r = app.ripples[i];
-      const u = (now - r.t0) / RIPPLE_MS;
-      if (u >= 1) { app.ripples.splice(i, 1); continue; }
-      ctx2d.strokeStyle = `rgba(${r.col},${(0.5 * (1 - u)).toFixed(3)})`;
-      ctx2d.lineWidth = 1.5 * DPR;
+      const raw = (now - r.t0) / (r.ms || RIPPLE_MS);
+      if (raw >= 1) { app.ripples.splice(i, 1); continue; }
+      const u = easeOut(raw);
+      const a = (1 - raw) * (r.alpha ?? 0.28);
+      ctx2d.strokeStyle = `rgba(${r.col},${a.toFixed(3)})`;
+      ctx2d.lineWidth = (r.width ?? 1.1) * DPR;
       ctx2d.beginPath();
-      ctx2d.arc(px(r.x), py(r.y), (0.015 + 0.12 * u) * S * zoom, 0, 6.2832);
+      ctx2d.arc(
+        px(r.x), py(r.y),
+        ((r.r0 ?? 0.01) + (r.r1 ?? 0.07) * u) * S * zoom,
+        0, 6.2832,
+      );
       ctx2d.stroke();
+    }
+  }
+
+  /** Soft dissolve of nodes that just died — shrink, drift, fade. No pop. */
+  function drawDying(app, now) {
+    if (!app.dying?.length) return;
+    ctx2d.globalCompositeOperation = "source-over";
+    for (let i = app.dying.length - 1; i >= 0; i--) {
+      const d = app.dying[i];
+      const raw = (now - d.t0) / DIE_MS;
+      if (raw >= 1) { app.dying.splice(i, 1); continue; }
+      // hold a beat, then ease away
+      const u = raw < 0.12 ? 0 : easeOut((raw - 0.12) / 0.88);
+      const fade = 1 - u;
+      const drift = 0.012 * u; // gentle lift in display space
+      const X = px(d.x + d.dx * u * 0.4);
+      const Y = py(d.y + drift + d.dy * u * 0.25);
+      const rad = d.r * DPR * (1 - 0.75 * u) * (0.85 + 0.15 * Math.sin(raw * 6 + d.phase));
+
+      // soft ember core
+      ctx2d.fillStyle = `rgba(${d.R},${d.G},${d.B},${(0.55 * fade * d.a).toFixed(3)})`;
+      ctx2d.beginPath();
+      ctx2d.arc(X, Y, Math.max(0.4 * DPR, rad), 0, 6.2832);
+      ctx2d.fill();
+
+      // faint ash ring expanding as the core shrinks
+      if (u > 0.05) {
+        ctx2d.strokeStyle = `rgba(${d.R},${d.G},${d.B},${(0.22 * fade).toFixed(3)})`;
+        ctx2d.lineWidth = 0.8 * DPR;
+        ctx2d.beginPath();
+        ctx2d.arc(X, Y, rad * (1.4 + 1.8 * u), 0, 6.2832);
+        ctx2d.stroke();
+      }
+
+      // two tiny motes drifting off
+      for (let m = 0; m < 2; m++) {
+        const ang = d.phase + m * 2.1;
+        const mx = X + Math.cos(ang) * rad * (1.2 + 2.5 * u);
+        const my = Y + Math.sin(ang) * rad * (1.2 + 2.5 * u) - 4 * DPR * u;
+        ctx2d.fillStyle = `rgba(${d.R},${d.G},${d.B},${(0.35 * fade * (1 - u)).toFixed(3)})`;
+        ctx2d.fillRect(mx, my, Math.max(1, 1.2 * DPR), Math.max(1, 1.2 * DPR));
+      }
     }
   }
 
@@ -96,6 +150,7 @@ export function createRenderer(cv) {
     const view = findView(views, viewId);
     if (view?.paint) view.paint(ctx2d, app, geom);
 
+    drawDying(app, now);
     drawRipples(app, now);
 
     let hovered = -1;
@@ -144,14 +199,14 @@ export function createRenderer(cv) {
     }
 
     if (app.ptr) {
-      ctx2d.strokeStyle = app.drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.35)";
+      ctx2d.strokeStyle = app.drawing ? "rgba(255,111,145,0.55)" : "rgba(255,255,255,0.35)";
       ctx2d.lineWidth = 1.2 * DPR;
       ctx2d.setLineDash([4 * DPR, 4 * DPR]);
       ctx2d.beginPath();
       ctx2d.arc(px(app.ptr.x), py(app.ptr.y), app.brushR * S * zoom, 0, 6.2832);
       ctx2d.stroke();
       ctx2d.setLineDash([]);
-      ctx2d.fillStyle = app.drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.7)";
+      ctx2d.fillStyle = app.drawing ? "rgba(255,111,145,0.7)" : "rgba(255,255,255,0.7)";
       ctx2d.fillRect(px(app.ptr.x) - DPR, py(app.ptr.y) - DPR, 2 * DPR, 2 * DPR);
     }
   }
@@ -181,7 +236,7 @@ export function createRenderer(cv) {
   }
 
   resize();
-  return { resize, draw, paintThumbs, canvasPos, get zoom() { return zoom; }, get S() { return S; } };
+  return { resize, draw, paintThumbs, canvasPos, get zoom() { return zoom; }, get S() { return S; }, get dpr() { return DPR; } };
 }
 
 export function loss(app) {

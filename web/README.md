@@ -52,10 +52,12 @@ Register another target in `js/models.js`.
 ## Deploy
 
 ```sh
-npx wrangler pages deploy web --project-name graph-cellular-automata
+cd web && npm run deploy
 ```
 
-Do not ship `node_modules`. `demo.js` is the only JS runtime dependency.
+That rebuilds `demo.js`, then uploads only the runtime files (`index.html`,
+`css/`, `demo.js`) via Wrangler Pages. Source under `js/`, `artifacts/`, and
+`node_modules` are excluded by `.cfignore`.
 
 ## Rule parity
 

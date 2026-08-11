@@ -87,7 +87,7 @@ export function channelView(id) {
 
 function paintRgb(g, ctx, geom) {
   const { n, c, alphaIdx: A, x, glow } = ctx;
-  const { px, py, dispPos, dispD, dpr, rCore, rHalo } = geom;
+  const { px, py, dispPos, dispD, rCore, rHalo } = geom;
   if (glow) {
     g.globalCompositeOperation = "lighter";
     for (let i = 0; i < n; i++) {
@@ -174,7 +174,8 @@ function paintUmap(g, ctx, geom) {
     const a = x[i * c + A];
     if (a < 0.05) continue;
     const best = nearestCentroid(x, i, c, umap);
-    const R = (cols[best * 3] * 255) | 0, G = (cols[best * 3 + 1] * 255) | 0, B = (cols[best * 3 + 2] * 255) | 0;
+    const R = (cols[best * 3] * 255) | 0, G = (cols[best * 3 + 1] * 255) | 0,
+          B = (cols[best * 3 + 2] * 255) | 0;
     g.fillStyle = `rgba(${R},${G},${B},${cl(a).toFixed(3)})`;
     g.beginPath();
     g.arc(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]),

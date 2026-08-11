@@ -12,13 +12,6 @@ export function wireKeys(app, experiments) {
       app.autoFf = true;
       app.setSpeedIdx?.(8);
       app.trace?.clear();
-      if (app.dispPos)
-        app.ripples.push({
-          x: app.dispPos[app.seed * 2],
-          y: app.dispPos[app.seed * 2 + 1],
-          t0: performance.now(),
-          col: "255,255,255",
-        });
     } else if (e.key === "k") {
       clearAll(app);
     } else if (e.key === "g") {
