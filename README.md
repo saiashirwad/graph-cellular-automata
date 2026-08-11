@@ -1,39 +1,29 @@
 # Graph cellular automata
 
-Distill's [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca),
-but on a graph instead of a grid. One seed node grows into the whole pattern
-using only messages between neighbors.
+Distill's [Growing Neural Cellular Automata](https://distill.pub/2020/growing-ca)
+on a graph instead of a grid. One seed node grows into the whole pattern using
+only messages between neighbors.
 
-Live demo at **[gca.texoport.in](https://gca.texoport.in/)**: Stanford bunny on a
-surface point cloud (drag to orbit, click to wound).
+Live demo at **[gca.texoport.in](https://gca.texoport.in/)**: Stanford bunny on
+a surface point cloud (drag to orbit, click to wound).
 
 | Target | Rollout |
 | ------ | ------- |
 | ![bunny target](docs/media/target_bunny_pc.png) | ![bunny growth](docs/media/growth_bunny_pc.gif) |
 
-Every node sits on the mesh. Colour comes from surface normals, so a regrown
-ear comes back in a colour you can check. Damage training fills holes after
-wounds (eval MSE after heal ≈ 0.015 on band / ball / scatter / half cuts).
-
 ## How it works
 
-A grid CA is already a GNN with a fixed lattice and a hand-written rule.
-Relax both:
+A grid CA is a GNN with a fixed lattice and a hand-written rule. This relaxes
+both: any graph, learned rule. Each node holds 16 numbers (RGBA plus 12 hidden
+channels). Every step it sees its own state, the mean of its neighbors, and the
+mean difference to them; a small shared MLP updates the state. About half the
+nodes skip each step so nothing can depend on a global clock.
 
-| | neighborhood | rule |
-| --- | --- | --- |
-| classic CA | fixed grid | hand-written |
-| Neural CA (Distill) | fixed grid (Sobel) | learned MLP |
-| Graph NCA (this) | any graph (message passing) | learned MLP |
-
-Each node holds 16 numbers: RGB, alpha, and 12 hidden channels. Every step it
-sees its state, the mean of its neighbors, and the mean difference to them. A
-small shared MLP updates the state. About half the nodes skip each step so
-nothing can depend on a global clock.
-
-Training is the growing-NCA recipe: sample pool, random-length rollouts, MSE on
-RGBA, alive-masking by max-pooling alpha over neighbors, plus damage on the
-best samples so the rule learns to heal.
+Training follows the growing-NCA recipe: sample pool, random-length rollouts,
+MSE on RGBA, alive-masking by pooling alpha over neighbors. Every step also
+wrecks the best samples in the batch, so the rule learns to heal as well as
+grow. After 160 grow and 200 heal steps the bunny recovers to MSE 0.015–0.017
+from band, ball, scatter, and half cuts, with every node alive.
 
 Related: [Learning Graph Cellular Automata](https://arxiv.org/abs/2110.14237),
 [Mesh Neural CA](https://meshnca.github.io/),
@@ -43,13 +33,10 @@ Related: [Learning Graph Cellular Automata](https://arxiv.org/abs/2110.14237),
 
 ```sh
 uv sync
-
-# surface bunny (what the demo ships)
-uv run python scripts/fetch_pointclouds.py          # once: sample meshes → data/pointclouds/
+uv run python scripts/fetch_pointclouds.py   # once: sample meshes into data/pointclouds/
 uv run python -u scripts/train.py \
   --target bunny --nodes 1536 --k 12 \
   --horizon 64 120 --damage 3 --steps 8000 --tag _pc
-
 uv run python scripts/train.py --animate --target bunny --tag _pc
 uv run python scripts/eval_damage.py runs/checkpoint_bunny_pc.pt --grow 160 --heal 200
 uv run python scripts/export_web.py runs/checkpoint_bunny_pc.pt \
@@ -57,50 +44,19 @@ uv run python scripts/export_web.py runs/checkpoint_bunny_pc.pt \
 open web/index.html
 ```
 
-`--animate` reloads the checkpoint as-is (positions, edges, seed). You do not
-need matching `--nodes` or the raw meshes just to render a gif.
+`--animate` reloads the checkpoint as-is; you do not need matching `--nodes` or
+the raw meshes to render a gif. Watch `probe_healed` more than loss: loss can
+fall while regeneration stays broken. Other targets: `spot`, `teapot`,
+`armadillo`, plus 2-d patterns (`heart`, `star`, `annulus`, `lobes`, `ring`).
 
-Keep `-u` if you redirect logs. Watch `probe_healed` more than loss. Loss can
-fall while regeneration stays broken.
+Deploy: `npx wrangler pages deploy web --project-name graph-cellular-automata`.
 
-Other shapes after fetch: `--target spot|teapot|armadillo` with similar knobs
-(`k` 12–16, longer horizon on thin topology). 2-d patterns still work
-(`heart`, `star`, `annulus`, `lobes`, `ring`).
+## Edge damage
 
-## Healing
-
-Growing and healing are different skills. Train only to grow and a finished
-pattern has a narrow basin: punch a hole and it may stall or rot. So every step
-sort the batch by loss and wreck the best samples. The basin that matters is
-around a finished pattern.
-
-Bunny (`_pc`), after 160 grow / 200 heal steps:
-
-| damage | after hit (alive / mse) | healed t+200 |
-| ------ | ----------------------- | ------------ |
-| band | 80% / 0.10 | **100% / 0.015** |
-| ball, 25% | 75% / 0.13 | **100% / 0.016** |
-| scatter 25% | 75% / 0.12 | **100% / 0.015** |
-| right half | 53% / 0.21 | **100% / 0.017** |
-
-## Deploy
-
-Static site is `web/` (Cloudflare Pages):
-
-```sh
-npx wrangler pages deploy web --project-name graph-cellular-automata
-```
-
-## Edge damage: a wound a grid cannot have
-
-A grid CA breaks one way: kill cells. A graph CA breaks two: kill nodes, or
-cut edges. The two heal differently.
-
-Same bunny checkpoint, same seeds, 200 steps to grow, 200 to heal. Node
-damage zeroes a fraction of the pattern's nodes; edge damage removes the same
-fraction of all edges. Cutting edges changes no state, so the wound is
-invisible at the hit (MSE 0.018 at every fraction) and shows up only as the
-rule runs on the broken graph. Mean of 5 seeds:
+A grid CA breaks one way: kill cells. A graph CA also breaks by cutting edges.
+Cutting changes no state, so the wound is invisible at the hit (MSE 0.018 at
+every fraction) and shows up only as the rule runs on the broken graph. Same
+checkpoint, 200 steps to grow and 200 to heal, mean of 5 seeds:
 
 | removed | nodes: healed MSE | edges: healed MSE | edges: alive |
 | --- | --- | --- | --- |
@@ -111,19 +67,7 @@ rule runs on the broken graph. Mean of 5 seeds:
 
 ![edge vs node damage](docs/media/edge_vs_node.png)
 
-Zeroing 70% of the bunny regrows to 0.023. Cutting 70% of its edges rots the
-pattern in place while every node stays alive. A grid CA cannot express this
-kind of wound, and it is the one that kills the pattern. Reproduce:
-`uv run python scripts/eval_edges.py` (writes the table, the CSV, and the
-plot).
-
-## Things to try
-
-- more surface clouds (`spot`, `teapot`, …) in the demo picker
-- cut edges during training, not only at eval
-- train on a fresh random graph every episode
-- swap `heart_target` / bake your own point cloud
-
-The rule learns the bunny on this graph, not the bunny in the abstract. That
-dependence is what the edge table above measures, and it is a failure mode a
-grid CA does not have.
+Zeroing 70% of the nodes regrows to 0.023; cutting 70% of the edges rots the
+pattern while every node stays alive. The rule learns the bunny on this graph,
+not the bunny in the abstract. Reproduce with
+`uv run python scripts/eval_edges.py`.
