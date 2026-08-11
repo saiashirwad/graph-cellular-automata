@@ -1,6 +1,5 @@
 import { HIDDEN_FROM } from "../spec.js";
 import { cl, swatch } from "./colors.js";
-import { isOrbit3d, onFrontShell } from "./shell.js";
 
 function nearestCentroid(x, i, c, umap) {
   const cent = umap.centroids, K = umap.k, H = umap.hdim;
@@ -89,9 +88,7 @@ export function channelView(id) {
 function paintRgb(g, ctx, geom) {
   const { n, c, alphaIdx: A, x, glow } = ctx;
   const { px, py, dispPos, dispD, rCore, rHalo } = geom;
-  const shell = isOrbit3d(ctx);
-  // additive glow fills tears; keep it for flat layouts only
-  if (glow && !shell) {
+  if (glow) {
     g.globalCompositeOperation = "lighter";
     for (let i = 0; i < n; i++) {
       const a = x[i * c + A];
@@ -107,7 +104,6 @@ function paintRgb(g, ctx, geom) {
   }
   g.globalCompositeOperation = "source-over";
   for (let i = 0; i < n; i++) {
-    if (shell && !onFrontShell(ctx, i)) continue;
     const a = x[i * c + A];
     if (a < 0.05) continue;
     g.fillStyle = `rgba(${(cl(x[i * c]) * 255) | 0},${(cl(x[i * c + 1]) * 255) | 0},${(cl(x[i * c + 2]) * 255) | 0},${cl(a).toFixed(3)})`;
@@ -121,12 +117,10 @@ function paintRgb(g, ctx, geom) {
 function paintAct(g, ctx, geom) {
   const { n, c, alphaIdx: A, x, act } = ctx;
   const { px, py, dispPos, rCore } = geom;
-  const shell = isOrbit3d(ctx);
   let sum = 0, cnt = 0;
   for (let i = 0; i < n; i++) if (act[i] > 1e-8) { sum += act[i]; cnt++; }
   const scale = 3 * (cnt ? sum / cnt : 1e-6);
   for (let i = 0; i < n; i++) {
-    if (shell && !onFrontShell(ctx, i)) continue;
     const v = cl(Math.sqrt(act[i] / scale));
     if (v < 0.02 && x[i * c + A] < 0.05) continue;
     const R = 60 + 195 * v, G = 50 + 90 * v, B = 140 + 35 * v;
@@ -141,8 +135,7 @@ function paintPca(g, ctx, geom) {
   if (!ctx.pca) return;
   const { n, c, alphaIdx: A, x, glow, pca } = ctx;
   const { px, py, dispPos, dispD, rCore, rHalo } = geom;
-  const shell = isOrbit3d(ctx);
-  if (glow && !shell) {
+  if (glow) {
     g.globalCompositeOperation = "lighter";
     for (let i = 0; i < n; i++) {
       const a = x[i * c + A];
@@ -158,7 +151,6 @@ function paintPca(g, ctx, geom) {
   }
   g.globalCompositeOperation = "source-over";
   for (let i = 0; i < n; i++) {
-    if (shell && !onFrontShell(ctx, i)) continue;
     const a = x[i * c + A];
     if (a < 0.05) continue;
     const [R, G, B] = pcaProj(x, i, c, pca);
@@ -177,10 +169,8 @@ function paintUmap(g, ctx, geom) {
   if (!ctx.umap) return;
   const { n, c, alphaIdx: A, x, umap } = ctx;
   const { px, py, dispPos, dispD, rCore, dpr } = geom;
-  const shell = isOrbit3d(ctx);
   const cols = umap.colors;
   for (let i = 0; i < n; i++) {
-    if (shell && !onFrontShell(ctx, i)) continue;
     const a = x[i * c + A];
     if (a < 0.05) continue;
     const best = nearestCentroid(x, i, c, umap);
@@ -200,14 +190,12 @@ function paintUmap(g, ctx, geom) {
 function paintChannel(g, ctx, geom, c0) {
   const { n, c, alphaIdx: A, x } = ctx;
   const { px, py, dispPos, rCore, dpr } = geom;
-  const shell = isOrbit3d(ctx);
   let s = 1e-6;
   for (let i = 0; i < n; i++) {
     const v = Math.abs(x[i * c + c0]);
     if (v > s) s = v;
   }
   for (let i = 0; i < n; i++) {
-    if (shell && !onFrontShell(ctx, i)) continue;
     if (x[i * c + A] < 0.05) continue;
     const X = px(dispPos[i * 2]), Y = py(dispPos[i * 2 + 1]);
     g.fillStyle = "rgba(255,255,255,0.10)";

@@ -1,6 +1,5 @@
 import { findView } from "./views.js";
 import { findLayout } from "../layout/index.js";
-import { isOrbit3d, onFrontShell } from "./shell.js";
 
 const RIPPLE_MS = 900;
 const DIE_MS = 1100;
@@ -111,52 +110,29 @@ export function createRenderer(cv) {
 
     ctx2d.clearRect(0, 0, CW, CH);
 
-    const shell = isOrbit3d(app);
-
     if (showEdges) {
       ctx2d.lineWidth = Math.max(1, 0.5 * DPR);
       ctx2d.strokeStyle = "rgba(255,255,255,0.09)";
       ctx2d.beginPath();
-      for (let i = 0; i < n; i++) {
-        if (shell && !onFrontShell(app, i)) continue;
+      for (let i = 0; i < n; i++)
         for (let k = off[i]; k < off[i + 1]; k++) {
           const j = src[k];
           if (j <= i) continue;
-          if (shell && !onFrontShell(app, j)) continue;
           ctx2d.moveTo(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]));
           ctx2d.lineTo(px(dispPos[j * 2]), py(dispPos[j * 2 + 1]));
         }
-      }
       ctx2d.stroke();
     }
 
-    // 3-d: only mark holes (should-be-alive, currently dead) on the front shell.
-    // Drawing the full target ghost fills tears with the far-side look.
-    if (showGhost && viewId === "rgb") {
+    if (showGhost && viewId === "rgb" && (app.layoutId === "space" || dim > 2)) {
       ctx2d.globalCompositeOperation = "source-over";
-      if (shell) {
-        for (let i = 0; i < n; i++) {
-          if (!onFrontShell(app, i)) continue;
-          if (tgt[i * 4 + 3] < 0.15) continue;
-          if (x[i * c + A] > 0.1) continue;
-          const X = px(dispPos[i * 2]), Y = py(dispPos[i * 2 + 1]);
-          ctx2d.fillStyle = "rgba(0,0,0,0.55)";
-          ctx2d.beginPath();
-          ctx2d.arc(X, Y, 2.8 * DPR, 0, 6.2832);
-          ctx2d.fill();
-          ctx2d.strokeStyle = "rgba(255,255,255,0.22)";
-          ctx2d.lineWidth = 1 * DPR;
-          ctx2d.stroke();
-        }
-      } else if (app.layoutId === "space" || dim > 2) {
-        for (let i = 0; i < n; i++) {
-          const a = tgt[i * 4 + 3];
-          if (a < 0.05) continue;
-          ctx2d.fillStyle = `rgba(${(tgt[i * 4] * 255) | 0},${(tgt[i * 4 + 1] * 255) | 0},${(tgt[i * 4 + 2] * 255) | 0},0.14)`;
-          ctx2d.beginPath();
-          ctx2d.arc(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]), 2.4 * DPR, 0, 6.2832);
-          ctx2d.fill();
-        }
+      for (let i = 0; i < n; i++) {
+        const a = tgt[i * 4 + 3];
+        if (a < 0.05) continue;
+        ctx2d.fillStyle = `rgba(${(tgt[i * 4] * 255) | 0},${(tgt[i * 4 + 1] * 255) | 0},${(tgt[i * 4 + 2] * 255) | 0},0.14)`;
+        ctx2d.beginPath();
+        ctx2d.arc(px(dispPos[i * 2]), py(dispPos[i * 2 + 1]), 2.4 * DPR, 0, 6.2832);
+        ctx2d.fill();
       }
     }
 

@@ -10,7 +10,6 @@ import {
 } from "./graph/csr.js";
 import { initLayoutBuffers, updateLayout } from "./layout/index.js";
 import { buildViews, channelView } from "./render/views.js";
-import { computeNormals } from "./render/shell.js";
 import { channelIds } from "./spec.js";
 
 /** Normalize a raw export into typed arrays the engines consume. */
@@ -84,7 +83,6 @@ export function applyBundle(app, bundle, extras = {}) {
   const edges = edgesFromCSR(app.n, app.off, app.src);
   app.fullEdges = edges.fullEdges;
   app.activeMask = edges.activeMask;
-  app.normals = computeNormals(app.n, app.pos, app.dim, app.off, app.src);
 
   app.x = new Float32Array(app.n * app.c);
   app.act = new Float32Array(app.n);
