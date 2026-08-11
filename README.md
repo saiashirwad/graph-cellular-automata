@@ -91,6 +91,32 @@ Static site is `web/` (Cloudflare Pages):
 npx wrangler pages deploy web --project-name graph-cellular-automata
 ```
 
+## Edge damage: a wound a grid cannot have
+
+A grid CA breaks one way: kill cells. A graph CA breaks two: kill nodes, or
+cut edges. The two heal very differently.
+
+Same bunny checkpoint, same seeds, 200 steps to grow, 200 to heal. Node
+damage zeroes a fraction of the pattern's nodes; edge damage removes the same
+fraction of all edges. Cutting edges changes no state, so the wound is
+invisible at the hit (MSE 0.018 at every fraction) and shows up only as the
+rule runs on the broken graph. Mean of 5 seeds:
+
+| removed | nodes: healed MSE | edges: healed MSE | edges: alive |
+| --- | --- | --- | --- |
+| 10% | 0.016 | 0.019 | 100% |
+| 25% | 0.018 | 0.028 | 100% |
+| 50% | 0.020 | 0.081 | 100% |
+| 70% | 0.023 | diverges (4 of 5) | 100% |
+
+![edge vs node damage](docs/media/edge_vs_node.png)
+
+Zeroing 70% of the bunny regrows to 0.023. Cutting 70% of its edges rots the
+pattern while every node stays alive — the rule destabilizes in place, no
+cell dies, and the wound a grid CA cannot even express is the one that kills
+it. Reproduce: `uv run python scripts/eval_edges.py` (writes the table, the
+CSV, and the plot).
+
 ## Things to try
 
 - more surface clouds (`spot`, `teapot`, …) in the demo picker
@@ -98,6 +124,6 @@ npx wrangler pages deploy web --project-name graph-cellular-automata
 - train on a fresh random graph every episode
 - swap `heart_target` / bake your own point cloud
 
-The rule does not learn “the bunny.” It learns the bunny **on this graph**.
-Thin the edges and the pattern degrades before any node has died. A grid CA
-cannot fail that way, and that is the interesting part.
+The rule does not learn “the bunny.” It learns the bunny **on this graph** —
+that is what the edge table above measures. A grid CA cannot fail that way,
+and that is the interesting part.
