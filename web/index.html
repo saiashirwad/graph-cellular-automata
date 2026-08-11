@@ -102,7 +102,7 @@
   .vrow:hover .vname, .vrow.active .vname { color:var(--ink); }
 
   /* ---- top-right: transport + tempo, one instrument block ---- */
-  #deck { top:22px; right:26px; width:232px; background:var(--panel); border:1px solid var(--line); }
+  #deck { top:22px; right:26px; width:232px; background:var(--panel); }
   #transport { display:flex; }
   #transport button {
     flex:1; padding:7px 0; font-size:11.5px; font-weight:500; color:var(--dim);
@@ -116,7 +116,7 @@
     font:10.5px/1 var(--mono); color:var(--faint); cursor:pointer;
   }
   #deckSpeed span {
-    color:var(--ink); min-width:10ch; text-align:right;
+    color:var(--ink); min-width:12ch; text-align:right; white-space:nowrap;
     font-variant-numeric:tabular-nums;
   }
   #deckSpeed input[type=range] { flex:1; width:auto; }
@@ -269,11 +269,12 @@
   @media (max-width:1100px) {
     #masthead { max-width:230px; }
     #masthead p { display:none; }
+    #displayCl, #records { display:none; }
+    #dock { width:96vw; }
   }
   @media (max-width:900px) {
-    #displayCl, #records, .credit { display:none; }
-    #layoutCap { display:none; }
-    #dock { width:96vw; bottom:20px; }
+    .credit, #layoutCap { display:none; }
+    #dock { bottom:20px; }
     #viewMain .vrow { padding:1px 8px 1px 6px; }
   }
 </style>
