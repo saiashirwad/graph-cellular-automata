@@ -18,7 +18,7 @@ import numpy as np
 import torch
 from sklearn.cluster import KMeans
 
-from gnca import GraphNCA, alive_mask, seed_state
+from gnca import alive_mask, load_checkpoint, seed_state
 
 p = argparse.ArgumentParser()
 p.add_argument("--ckpt", default="runs/checkpoint.pt")
@@ -31,17 +31,13 @@ p.add_argument("--out-png", default="docs/media/umap.png")
 args = p.parse_args()
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load(args.ckpt, weights_only=False)
-pos, edges = ckpt["pos"], ckpt["edges"].to(device)
-C, N = ckpt["channels"], pos.shape[0]
+ck = load_checkpoint(args.ckpt, device)
+edges, model = ck.edges, ck.model
+C, N = ck.channels, ck.n
 HDIM = C - 4                                    # hidden channels only
-model = GraphNCA(channels=C).to(device)
-model.load_state_dict(ckpt["model"])
-center = int(ckpt["center"]) if "center" in ckpt else \
-    int(np.argmin(((np.asarray(pos) - 0.5) ** 2).sum(1)))
 
 # ---- collect hidden states over a growth rollout ----
-x = seed_state(1, N, C, device, center)[0]
+x = seed_state(1, N, C, device, ck.center)[0]
 snaps, times = [], []
 with torch.no_grad():
     for t in range(args.steps):
@@ -50,7 +46,7 @@ with torch.no_grad():
             if alive.sum() > 10:
                 snaps.append(x[alive, 4:C].cpu().numpy())
                 times.append(np.full(int(alive.sum()), t))
-        x = model(x, edges) * alive_mask(x, edges, N)
+        x = model(x, edges) * alive_mask(x, edges)
 H = np.vstack(snaps).astype(np.float32)
 T = np.concatenate(times)
 if len(H) > args.max_points:                    # UMAP slows past ~100k points
@@ -60,6 +56,7 @@ print(f"{len(H)} state samples ({HDIM}-d hidden) from {args.steps} steps")
 
 # ---- embed: one 2-d map for all timesteps ----
 import umap
+
 emb = umap.UMAP(n_neighbors=15, min_dist=0.1, random_state=0).fit_transform(H)
 
 # ---- quantize: palette of centroids in hidden space, colored by map position ----
@@ -70,6 +67,7 @@ ang = (np.arctan2(c[:, 1], c[:, 0]) + np.pi) / (2 * np.pi)        # hue
 rad = np.linalg.norm(c, axis=1)
 rad = rad / rad.max()
 from matplotlib.colors import hsv_to_rgb
+
 colors = hsv_to_rgb(np.stack([ang, 0.45 + 0.55 * rad, np.full(args.k, 0.95)], 1))
 
 # normalize the map to [-1, 1] (single scale, aspect preserved) for the demo
@@ -93,6 +91,7 @@ print(f"wrote {args.out_js} ({os.path.getsize(args.out_js)//1024} KB, "
 
 # ---- inspection scatter ----
 import matplotlib
+
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 

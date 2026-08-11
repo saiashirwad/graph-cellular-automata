@@ -45,7 +45,6 @@ def normalize_unit_cube(pos, margin=0.08):
 def color_by_normals(normals):
     """Rainbow by azimuth, dimmed by elevation — readable regeneration cue."""
     n = np.asarray(normals, dtype=np.float32)
-    # guard zero normals
     lens = np.linalg.norm(n, axis=1, keepdims=True)
     n = n / np.clip(lens, 1e-8, None)
     h = (np.arctan2(n[:, 1], n[:, 0]) + np.pi) / (2 * np.pi)
@@ -68,7 +67,7 @@ def estimate_normals(pos, k=12):
         pts = pos[nn[i]] - pos[i]
         _, _, vt = np.linalg.svd(pts, full_matrices=False)
         normals[i] = vt[-1]
-    # orient outward from centroid
+    # orient outward from the cloud centroid: SVD normals point either way
     centroid = pos.mean(0)
     flip = ((normals * (pos - centroid)).sum(1) < 0)
     normals[flip] *= -1
@@ -99,17 +98,10 @@ def load_cloud(name, n_nodes=None, seed_hint=None):
         rng = np.random.default_rng(0)
         idx = np.sort(rng.choice(len(pos), size=n_nodes, replace=False))
         pos, normals = pos[idx], normals[idx]
-    elif n_nodes is not None and n_nodes > len(pos):
-        # cannot invent surface points; use what we have
-        pass
+    # n_nodes > len(pos): cannot invent surface points; use what we have
 
     pos = normalize_unit_cube(pos)
     rgba = color_by_normals(normals)
     hint = np.asarray(seed_hint if seed_hint is not None else POINTCLOUDS[name],
                       dtype=np.float32)
     return pos, rgba, hint
-
-
-def list_available():
-    """Names with an on-disk .npz ready to train."""
-    return sorted(n for n in POINTCLOUDS if cloud_path(n).exists())

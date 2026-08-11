@@ -12,7 +12,7 @@ import numpy as np
 import torch
 from sklearn.decomposition import PCA
 
-from gnca import GraphNCA, alive_mask, seed_state
+from gnca import alive_mask, load_checkpoint, seed_state
 
 p = argparse.ArgumentParser()
 p.add_argument("--ckpt", default="runs/checkpoint.pt")
@@ -22,22 +22,19 @@ p.add_argument("--weights", default="runs/pca_weights.npz",
 args = p.parse_args()
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load(args.ckpt, weights_only=False)
-pos, edges = ckpt["pos"], ckpt["edges"].to(device)
-target = ckpt["target"]
-C, N = ckpt["channels"], pos.shape[0]
-model = GraphNCA(channels=C).to(device)
-model.load_state_dict(ckpt["model"])
-center = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
+ck = load_checkpoint(args.ckpt, device)
+pos, edges, model = ck.pos, ck.edges, ck.model
+C, N = ck.channels, ck.n
 
 # ---- collect hidden states over a rollout to fit PCA ----
-x = seed_state(1, N, C, device, center)[0]
+x = seed_state(1, N, C, device, ck.center)[0]
 hidden_snapshots = []
 with torch.no_grad():
     for t in range(120):
         hidden = x[:, 4:C].cpu().numpy()
-        hidden_snapshots.append(hidden[hidden[:, 0] != 0] if hidden[hidden[:, 0] != 0].shape[0] > 10 else hidden)
-        m = alive_mask(x, edges, N)
+        alive = hidden[hidden[:, 0] != 0]
+        hidden_snapshots.append(alive if alive.shape[0] > 10 else hidden)
+        m = alive_mask(x, edges)
         x = model(x, edges) * m
 
 # fit PCA on all collected hidden states (only alive nodes)
@@ -48,7 +45,7 @@ print(f"PCA explained variance: {pca.explained_variance_ratio_}, "
       f"cumulative: {pca.explained_variance_ratio_.sum():.3f}")
 
 # ---- re-run rollout, recording PCA-projected frames ----
-x = seed_state(1, N, C, device, center)[0]
+x = seed_state(1, N, C, device, ck.center)[0]
 rgba_frames, pca_frames = [], []
 with torch.no_grad():
     for t in range(120):
@@ -62,7 +59,7 @@ with torch.no_grad():
             if rng > 1e-8:
                 pca_rgb[:, c] = (col - col.min()) / rng
         pca_frames.append(pca_rgb)
-        m = alive_mask(x, edges, N)
+        m = alive_mask(x, edges)
         x = model(x, edges) * m
 
 # ---- animate side by side ----
@@ -97,5 +94,5 @@ print(f"saved {args.out}")
 np.savez(args.weights,
          components=pca.components_,     # (3, 12)
          mean=pca.mean_,                 # (12,)
-         scale=pca.explained_variance_ ** 0.5)  # (12,) rough per-component scale
+         scale=pca.explained_variance_ ** 0.5)  # (3,) rough per-component scale
 print(f"saved {args.weights} for web export")

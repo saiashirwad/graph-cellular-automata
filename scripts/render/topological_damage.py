@@ -1,6 +1,6 @@
-"""Topological damage test: grow the heart, then cut edges and watch it adapt.
+"""Topological damage test: grow the pattern, then cut edges and watch it adapt.
 
-    uv run python topological_damage.py [--mode spatial|random] [--cut 0.3]
+    uv run python scripts/render/topological_damage.py [--mode spatial|random] [--cut 0.3]
 Saves topological_damage.gif.
 
 This is the graph-native version of the pixel-damage demo: instead of killing
@@ -13,7 +13,7 @@ os.environ.pop("MPLBACKEND", None)
 import numpy as np
 import torch
 
-from gnca import GraphNCA, alive_mask, seed_state
+from gnca import alive_mask, load_checkpoint, seed_state
 from gnca import damage as dmg
 
 p = argparse.ArgumentParser()
@@ -27,18 +27,15 @@ p.add_argument("--cut", type=float, default=0.4,
 args = p.parse_args()
 
 device = "mps" if torch.backends.mps.is_available() else "cpu"
-ckpt = torch.load(args.ckpt, weights_only=False)
-pos, edges = ckpt["pos"], ckpt["edges"].to(device)
-C, N = ckpt["channels"], pos.shape[0]
-model = GraphNCA(channels=C).to(device)
-model.load_state_dict(ckpt["model"])
-center = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
-target = ckpt["target"].to(device) if torch.is_tensor(ckpt["target"]) else torch.from_numpy(ckpt["target"]).to(device)
+ck = load_checkpoint(args.ckpt, device)
+pos, edges, model = ck.pos, ck.edges, ck.model
+C, N = ck.channels, ck.n
+target = torch.from_numpy(ck.target).to(device)
 
 GROW, ADAPT = 80, 160
 
 # ---- determine which edges to cut ----
-edges_np = ckpt["edges"].numpy()
+edges_np = ck.edges_np
 if args.mode == "spatial":
     keep_mask = dmg.cut_across(pos, edges_np, args.cut)
     cut_desc = f"cut all edges crossing y={args.cut:.2f}"
@@ -53,13 +50,13 @@ edges_full = edges
 edges_cut = edges[:, torch.from_numpy(keep_mask).to(device)]
 
 # ---- rollout ----
-x = seed_state(1, N, C, device, center)[0]
+x = seed_state(1, N, C, device, ck.center)[0]
 frames = []
 with torch.no_grad():
     for t in range(GROW + ADAPT):
         frames.append(x[:, :4].cpu().numpy().copy())
         use_edges = edges_full if t < GROW else edges_cut
-        m = alive_mask(x, use_edges, N)
+        m = alive_mask(x, use_edges)
         x = model(x, use_edges) * m
         if t == GROW:
             print(f"t={t}: switched to damaged topology ({n_cut} edges cut)")

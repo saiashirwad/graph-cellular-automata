@@ -19,8 +19,9 @@ import torch.nn.functional as F
 from gnca import (
     GraphNCA,
     alive_mask,
-    load_rule,
     knn_graph,
+    load_checkpoint,
+    load_rule,
     random_geometric_graph,
     seed_state,
     watts_strogatz_graph,
@@ -184,13 +185,13 @@ if not args.animate:
             x = seed_state(1, N, args.channels, device, center)[0]
             energy = {}
             for t in range(1, grow + 1):
-                x = model(x, edges, deg=deg) * alive_mask(x, edges, N)
+                x = model(x, edges, deg=deg) * alive_mask(x, edges)
                 if t in (10, 20, 40, 80):
                     energy[f"dirich_t{t}"] = edge_energy(x)
             grown = ((x[:, :4] - target) ** 2).mean().item()
             x[PROBE_BALL] = 0.0
             for _ in range(heal):
-                x = model(x, edges, deg=deg) * alive_mask(x, edges, N)
+                x = model(x, edges, deg=deg) * alive_mask(x, edges)
             healed = ((x[:, :4] - target) ** 2).mean().item()
             energy["dirich_healed"] = edge_energy(x)
             return grown, healed, energy
@@ -201,7 +202,7 @@ if not args.animate:
         e, dg = (bedges, bdeg) if batched else (edges, deg)
         x = x0
         for _ in range(n_steps):
-            m = alive_mask(x, e, N)
+            m = alive_mask(x, e)
             x = model(x, e, deg=dg)
             x = x * m
         return x
@@ -283,22 +284,9 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.animation import FuncAnimation, PillowWriter
 
-ckpt = torch.load(CKPT, weights_only=False)
-pos = np.asarray(ckpt["pos"], dtype=np.float32)
-tgt = ckpt["target"]
-tgt = tgt.numpy() if torch.is_tensor(tgt) else np.asarray(tgt, dtype=np.float32)
-edges = ckpt["edges"]
-edges = edges.to(device) if torch.is_tensor(edges) else torch.as_tensor(edges, device=device)
-N = pos.shape[0]
-dim = int(ckpt.get("dim", pos.shape[1]))
-channels = int(ckpt["channels"])
-if "center" in ckpt:
-    center = int(ckpt["center"])
-else:
-    center = int(np.argmin(((pos - 0.5) ** 2).sum(1)))
-
-model = GraphNCA(channels=channels).to(device)
-load_rule(model, ckpt["model"])
+ck = load_checkpoint(CKPT, device)
+pos, edges, tgt = ck.pos, ck.edges, ck.target
+N, dim, center, model = ck.n, ck.dim, ck.center, ck.model
 print(f"animate {CKPT}: {dim}-d, {N} nodes, seed={center}")
 
 
@@ -330,7 +318,7 @@ frames = []
 with torch.no_grad():
     for t in range(120):
         frames.append(x[:, :4].cpu().numpy().copy())
-        m = alive_mask(x, edges, N)
+        m = alive_mask(x, edges)
         x = model(x, edges) * m
 
 anim = FuncAnimation(fig, lambda i: draw(ax, frames[i], f"graph NCA, t={i}", spin=-60 + i * 1.5),

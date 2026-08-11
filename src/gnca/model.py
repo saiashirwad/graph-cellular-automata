@@ -81,7 +81,7 @@ def load_rule(model, sd):
     return pad
 
 
-def alive_mask(x, edge_index, n_nodes, threshold=0.1):
+def alive_mask(x, edge_index, threshold=0.1):
     """Node lives if it or any neighbor has alpha > threshold (graph 3x3 mask)."""
     alpha = x[:, 3:4]
     neigh_max = torch.full_like(alpha, -1e9)

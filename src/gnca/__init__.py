@@ -1,18 +1,19 @@
 """Neural cellular automata on graphs."""
 from gnca import damage
 from gnca.graphs import knn_graph, random_geometric_graph, watts_strogatz_graph
+from gnca.inference import Checkpoint, load_checkpoint, rollout
 from gnca.model import GraphNCA, alive_mask, load_rule, seed_state
-from gnca.targets import heart_target, ring_target
 
 __all__ = [
+    "Checkpoint",
     "GraphNCA",
     "alive_mask",
     "damage",
-    "heart_target",
     "knn_graph",
+    "load_checkpoint",
     "load_rule",
     "random_geometric_graph",
-    "ring_target",
+    "rollout",
     "seed_state",
     "watts_strogatz_graph",
 ]

@@ -58,7 +58,6 @@ def watts_strogatz_graph(n_nodes=1024, k=8, beta=0.05, seed=0):
     for i in range(n_nodes):
         for d in range(1, k // 2 + 1):
             j = (i + d) % n_nodes
-            # rewire this edge with probability beta
             if rng.random() < beta:
                 candidates = np.setdiff1d(np.arange(n_nodes), [i])
                 j = int(rng.choice(candidates))

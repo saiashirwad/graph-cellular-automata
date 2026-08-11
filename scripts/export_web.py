@@ -39,7 +39,14 @@ off = np.concatenate([[0], np.cumsum(deg)]).astype(np.int32)
 
 # ---- MLP weights: net = Linear(3C,128) -> ReLU -> Linear(128,C, bias=False) ----
 model_w = ckpt["model"]
-w1 = model_w["net.0.weight"].cpu().numpy().astype(np.float32)  # (128, 3C)
+w1t = model_w["net.0.weight"]
+if w1t.shape[1] != 3 * C:
+    raise SystemExit(
+        f"checkpoint percept is {w1t.shape[1]} inputs wide, but the web demo "
+        f"implements the pre-degree-feature rule (3C={3 * C}, no gate). Export "
+        "a pre-#17 checkpoint, or teach demo.js the degree feature + gate first."
+    )
+w1 = w1t.cpu().numpy().astype(np.float32)                      # (128, 3C)
 b1 = model_w["net.0.bias"].cpu().numpy().astype(np.float32)    # (128,)
 w2 = model_w["net.2.weight"].cpu().numpy().astype(np.float32)  # (C, 128)
 
