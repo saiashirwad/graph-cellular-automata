@@ -30,12 +30,15 @@
   * { box-sizing:border-box; margin:0; padding:0; border-radius:0; }
   html,body { height:100%; }
   body {
-    background:var(--bg); color:var(--ink);
+    background:
+      radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px) 0 0 / 28px 28px,
+      var(--stage);
+    color:var(--ink);
     font:12.5px/1.5 var(--sans);
     letter-spacing:-.005em;
     -webkit-font-smoothing:antialiased; font-synthesis:none;
     text-rendering:optimizeLegibility;
-    display:flex; height:100vh; overflow:hidden;
+    overflow:hidden;
   }
   ::selection { background:var(--ink); color:#000; }
   button { font:inherit; color:inherit; background:none; border:none; cursor:pointer; }
@@ -44,58 +47,83 @@
       text-decoration-thickness:1px; text-underline-offset:3px; transition:text-decoration-color .15s var(--ease); }
   a:hover { text-decoration-color:var(--ink); }
 
-  /* ================= instrument rail ================= */
-  #rail {
-    width:264px; flex:none; overflow-y:auto;
-    background:var(--panel); border-right:1px solid var(--line);
-    padding:16px 14px 24px; scrollbar-width:thin; scrollbar-color:var(--line2) transparent;
+  /* ================= the stage: one full-bleed canvas ================= */
+  canvas#c {
+    position:fixed; inset:0; width:100%; height:100%;
+    display:block; cursor:none; touch-action:none;
   }
-  #rail::-webkit-scrollbar { width:6px; }
-  #rail::-webkit-scrollbar-thumb { background:var(--line2); }
+  /* every control floats above it */
+  #masthead, #proj, #deck, #displayCl, #records, #dock, .keys, .credit { position:fixed; z-index:2; }
 
-  .brand h1 { font:500 14px/1.3 var(--serif); letter-spacing:.13em; text-transform:uppercase; }
-  .brand h1 em { font-style:normal; }
-  .brand p {
-    font:italic 12.5px/1.5 var(--serif); letter-spacing:.005em;
-    color:var(--dim); margin-top:5px;
-  }
-  /* which trained specimen — an identity choice, so it sits with the title */
-  #models {
-    display:flex; width:max-content; gap:1px; margin-top:11px;
-    background:var(--line); border:1px solid var(--line);
-  }
-  #models button {
-    background:var(--panel); padding:5px 14px; font-size:11px; font-weight:500;
-    color:var(--faint); white-space:nowrap;
-    transition:background .12s var(--ease), color .12s var(--ease);
-  }
-  #models button:hover { background:var(--raise); color:var(--dim); }
-  #models button.active { background:var(--sel); color:var(--ink); }
-
-  .sect { margin-top:20px; }
-  .sect > h2, summary.h2 {
+  /* shared bits */
+  .ov {                                    /* small-caps overline heading */
     display:flex; align-items:center; gap:8px;
-    font:600 10.5px/1 var(--serif); letter-spacing:.18em; text-transform:uppercase;
-    color:var(--faint); margin-bottom:8px;
+    font:600 10px/1 var(--serif); letter-spacing:.2em; text-transform:uppercase;
+    color:var(--faint);
   }
-  .sect > h2::after, summary.h2::after { content:""; flex:1; height:1px; background:var(--line); }
+  .ov::after { content:""; flex:1; height:1px; background:var(--line); }
 
-  /* --- named rows (optics / projection) --- */
-  #viewMain, #layoutMain { display:flex; flex-direction:column; }
-  .vrow {
-    position:relative; display:flex; justify-content:space-between; align-items:baseline; gap:10px;
-    padding:6px 10px; text-align:left; border-left:2px solid transparent;
+  /* ---- top-left: identity + telemetry ---- */
+  #masthead { top:22px; left:26px; max-width:370px; }
+  #masthead h1 { font:500 15px/1.3 var(--serif); letter-spacing:.13em; text-transform:uppercase; }
+  #masthead h1 em { font-style:normal; }
+  #masthead p { font:italic 12.5px/1.5 var(--serif); letter-spacing:.005em; color:var(--dim); margin-top:4px; }
+  #readout {
+    margin-top:16px; display:flex; flex-wrap:wrap; gap:9px 16px;
+    font:10.5px/1 var(--mono); color:var(--faint);
+  }
+  #readout span { display:flex; align-items:baseline; gap:6px; }
+  #readout i {
+    font-style:normal; font-family:var(--serif); font-weight:600; font-size:9.5px;
+    letter-spacing:.14em; text-transform:uppercase;
+  }
+  #readout b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
+  #spark { width:74px; height:15px; display:block; align-self:center; }
+  #hud {
+    margin-top:10px; pointer-events:none; min-height:1.5em;
+    font:10.5px/1 var(--mono); color:var(--dim); letter-spacing:-.01em;
+  }
+
+  /* ---- top-center: projection switcher ---- */
+  #proj { top:22px; left:50%; transform:translateX(-50%); text-align:center; }
+  #proj .ov { justify-content:center; }
+  #proj .ov::before { content:""; flex:1; height:1px; background:var(--line); }
+  #layoutMain { display:flex; justify-content:center; gap:2px; margin-top:9px; }
+  #layoutMain .vrow {
+    padding:5px 14px 6px; border-bottom:2px solid transparent;
     transition:background .12s var(--ease), border-color .12s var(--ease);
   }
-  .vrow:hover { background:var(--raise); }
-  .vrow.active { background:var(--sel); border-left-color:var(--ink); }
-  .vname { font:500 13px/1.4 var(--serif); color:var(--dim); }
-  .vrow:hover .vname, .vrow.active .vname { color:var(--ink); }
-  .vdesc { font:italic 11px/1.4 var(--serif); color:var(--faint); text-align:right; }
-  #viewCap, #layoutCap { font:12px/1.5 var(--serif); color:var(--dim); margin-top:8px; }
+  #layoutMain .vrow:hover { background:var(--raise); }
+  #layoutMain .vrow.active { background:var(--sel); border-bottom-color:var(--ink); }
+  #layoutMain .vdesc { display:none; }
+  #layoutCap { font:italic 11.5px/1.5 var(--serif); color:var(--faint); margin-top:7px; }
 
-  /* --- toggle chips (display) --- */
-  .chips { display:grid; gap:5px; }
+  .vname { font:500 13px/1.4 var(--serif); color:var(--dim); transition:color .12s var(--ease); }
+  .vrow:hover .vname, .vrow.active .vname { color:var(--ink); }
+
+  /* ---- top-right: transport + tempo, one instrument block ---- */
+  #deck { top:22px; right:26px; width:232px; background:var(--panel); border:1px solid var(--line); }
+  #transport { display:flex; }
+  #transport button {
+    flex:1; padding:7px 0; font-size:11.5px; font-weight:500; color:var(--dim);
+    transition:background .12s var(--ease), color .12s var(--ease);
+  }
+  #transport button + button { border-left:1px solid var(--line); }
+  #transport button:hover { background:var(--raise); color:var(--ink); }
+  #deckSpeed {
+    display:flex; flex-direction:row-reverse; align-items:center; gap:10px;
+    padding:9px 12px; border-top:1px solid var(--line);
+    font:10.5px/1 var(--mono); color:var(--faint); cursor:pointer;
+  }
+  #deckSpeed span {
+    color:var(--ink); min-width:10ch; text-align:right;
+    font-variant-numeric:tabular-nums;
+  }
+  #deckSpeed input[type=range] { flex:1; width:auto; }
+
+  /* ---- bottom-left: display toggles + brush ---- */
+  #displayCl { left:26px; bottom:52px; width:168px; }
+  .chips { display:grid; gap:5px; margin-top:12px; }
   .chip {
     display:flex; align-items:center; justify-content:center; gap:7px;
     cursor:pointer; -webkit-user-select:none; user-select:none;
@@ -113,8 +141,7 @@
   .chip:has(input:checked) { background:var(--well); border-color:var(--line2); color:var(--ink); }
   .chip:has(input:checked)::before { background:var(--ink); box-shadow:none; }
 
-  /* --- sliders --- */
-  .ctrl { margin-top:12px; }
+  .ctrl { margin-top:14px; }
   .ctrl label {
     font-size:11.5px; color:var(--dim); display:flex; justify-content:space-between;
     align-items:baseline; margin-bottom:8px;
@@ -128,14 +155,27 @@
     outline:none; cursor:pointer;
   }
   input[type=range]::-webkit-slider-thumb {
-    -webkit-appearance:none; appearance:none; width:9px; height:14px;
+    -webkit-appearance:none; appearance:none; width:3px; height:12px;
     background:var(--ink); border:none;
   }
-  input[type=range]::-moz-range-thumb { width:9px; height:14px; background:var(--ink); border:none; }
+  input[type=range]::-moz-range-thumb { width:3px; height:12px; background:var(--ink); border:none; }
 
-  /* --- records (trace + weights) --- */
-  details { margin-top:20px; }
-  summary.h2 { cursor:pointer; list-style:none; transition:color .12s var(--ease); }
+  /* ---- bottom-right: the records (trace + weights), expand upward ---- */
+  #records {
+    right:26px; bottom:52px; width:236px;
+    max-height:max(200px, calc(100vh - 200px)); overflow-y:auto;
+    scrollbar-width:thin; scrollbar-color:var(--line2) transparent;
+  }
+  #records::-webkit-scrollbar { width:6px; }
+  #records::-webkit-scrollbar-thumb { background:var(--line2); }
+  #records details + details { margin-top:18px; }
+  summary.h2 {
+    display:flex; align-items:center; gap:8px;
+    font:600 10px/1 var(--serif); letter-spacing:.2em; text-transform:uppercase;
+    color:var(--faint); margin-bottom:8px;
+    cursor:pointer; list-style:none; transition:color .12s var(--ease);
+  }
+  summary.h2::after { content:""; flex:1; height:1px; background:var(--line); }
   summary.h2:hover { color:var(--dim); }
   summary.h2::-webkit-details-marker { display:none; }
   summary.h2::before { content:"+"; font:400 12px/1 var(--mono); color:var(--dim); width:8px; text-align:center; }
@@ -148,131 +188,37 @@
   .wcap { font:italic 11.5px/1.45 var(--serif); color:var(--faint); margin-top:6px; }
   .wcap + .mat { margin-top:10px; }
 
-  /* --- shortcuts bottom-left, attribution bottom-right --- */
-  .keys, .credit {
-    position:absolute; bottom:18px; z-index:2;
-    white-space:nowrap; font:11.5px/1.5 var(--serif); color:var(--faint);
+  /* ---- bottom dock: the story, the optics, the channel filmstrip ---- */
+  #dock {
+    left:50%; bottom:24px; transform:translateX(-50%);
+    display:flex; flex-direction:column; align-items:center; gap:9px;
+    width:min(calc(100vw - 560px), 940px);
   }
-  .credit { font-style:italic; right:22px; text-align:right; }
-  .keys { left:22px; }
-  .keys b {
-    font:600 9.5px/1 var(--mono); color:var(--dim); background:var(--well);
-    border:1px solid var(--line); border-bottom-width:2px;
-    padding:2px 4px; margin:0 2px;
+  #story {
+    font:14.5px/1.5 var(--serif); letter-spacing:.005em;
+    color:var(--dim); text-align:center; min-height:1.5em; max-width:640px;
+    background:rgba(5,5,6,.6); padding:1px 12px;
+    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
   }
+  #story b { color:var(--ink); font-weight:600; }
+  #dockrow { display:flex; align-items:stretch; gap:12px; width:100%; }
+  #viewMain {
+    flex:none; display:flex; flex-direction:column; justify-content:space-between;
+    padding-right:12px; border-right:1px solid var(--line);
+  }
+  #viewMain .vrow {
+    display:flex; text-align:left;
+    padding:2px 12px 2px 8px; border-left:2px solid transparent;
+    transition:background .12s var(--ease), border-color .12s var(--ease);
+  }
+  #viewMain .vrow:hover { background:var(--raise); }
+  #viewMain .vrow.active { background:var(--sel); border-left-color:var(--ink); }
+  #viewMain .vname { font-size:12.5px; }
+  #viewMain .vdesc { display:none; }
+  #viewCap { display:none; }               /* the legend carries the caption */
 
-  /* ================= stage ================= */
-  #stage {
-    flex:1; min-width:0; position:relative; display:flex; flex-direction:column;
-    background:
-      radial-gradient(rgba(255,255,255,.045) 1px, transparent 1px) 0 0 / 28px 28px,
-      var(--stage);
-  }
-  #view {
-    flex:1; min-height:0; display:flex; flex-direction:column;
-    align-items:center; justify-content:center; gap:16px; padding:26px 30px 30px;
-  }
-
-  /* --- protocol tabs across the top of the demo --- */
-  #topbar {
-    display:flex; align-items:stretch; flex:none;
-    background:var(--panel); border-bottom:1px solid var(--line);
-  }
-  #exps { display:flex; flex:1; min-width:0; }
-  .exp {
-    position:relative; flex:1; min-width:0;
-    display:grid; grid-template-columns:auto minmax(0,1fr);
-    align-content:center; justify-items:start; column-gap:13px; row-gap:1px;
-    text-align:left; padding:12px 22px; border-right:1px solid var(--line);
-    transition:background .12s var(--ease);
-  }
-  .exp:last-child { border-right:none; }
-  .exp::after {
-    content:""; position:absolute; left:0; right:0; bottom:-1px; height:2px;
-    background:var(--ink); transform:scaleX(0); transform-origin:left;
-    transition:transform .18s var(--ease);
-  }
-  .exp:hover { background:var(--raise); }
-  .exp.active { background:var(--sel); }
-  .exp.active::after { transform:scaleX(1); }
-  .exp .enum {
-    grid-column:1; grid-row:1 / span 2; align-self:center;
-    font:400 15px/1 var(--mono); letter-spacing:-.04em;
-    color:rgba(255,255,255,.26); font-variant-numeric:tabular-nums;
-    transition:color .12s var(--ease);
-  }
-  .exp .ename {
-    grid-column:2; grid-row:1; font:500 14px/1.35 var(--serif); letter-spacing:.005em;
-    color:var(--dim); transition:color .12s var(--ease);
-  }
-  .exp .edesc {
-    grid-column:2; grid-row:2; max-width:100%;
-    font:italic 11.5px/1.4 var(--serif); color:var(--faint);
-    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
-  }
-  .exp:hover .ename, .exp.active .ename { color:var(--ink); }
-  .exp:hover .enum { color:var(--faint); }
-  .exp.active .enum { color:var(--dim); }
-
-  /* --- the demo column: deck / canvas / filmstrip --- */
-  #viewport {
-    /* the canvas is square because node positions live in [0,1]^2; stretching
-       it wide would only letterbox. So take the height instead. */
-    --chrome:250px;                     /* deck, caption, hint, footer */
-    --strip:95px;                       /* filmstrip, 0 when it is hidden */
-    display:flex; flex-direction:column;
-    width:min(calc(100vh - var(--chrome) - var(--strip)),
-              calc(100vw - 380px), 1100px);
-  }
-  #viewport.nostrip { --strip:0px; }
-  #viewport.nostrip #chanbar { display:none; }
-
-  /* deck: transport + live readout, sitting on top of the canvas */
-  #deck { display:flex; align-items:center; margin-bottom:9px; }
-  #transport {
-    position:absolute; top:70px; right:22px; z-index:3;
-    display:flex; gap:1px; background:var(--line); border:1px solid var(--line);
-  }
-  #transport button {
-    background:var(--panel); padding:6px 15px; font-size:11.5px; font-weight:500; color:var(--dim);
-    transition:background .12s var(--ease), color .12s var(--ease);
-  }
-  #transport button:hover { background:var(--raise); color:var(--ink); }
-  #readout {
-    display:flex; align-items:center; gap:15px; min-width:0; overflow:hidden;
-    font:10.5px/1 var(--mono); color:var(--faint);
-  }
-  #deckSpeed {
-    margin-left:auto; flex:none; display:flex; align-items:center; gap:10px;
-    font:10.5px/1 var(--mono); color:var(--faint); cursor:pointer;
-  }
-  #deckSpeed span {
-    color:var(--ink); min-width:11ch; text-align:right;
-    font-variant-numeric:tabular-nums;
-  }
-  #deckSpeed input[type=range] { width:130px; }
-  #readout span { display:flex; align-items:baseline; gap:6px; }
-  #readout i {
-    font-style:normal; font-family:var(--serif); font-weight:600; font-size:9.5px;
-    letter-spacing:.14em; text-transform:uppercase;
-  }
-  #readout b { color:var(--ink); font-weight:600; font-variant-numeric:tabular-nums; }
-  #spark { width:74px; height:15px; display:block; align-self:center; }
-
-  #wrap {
-    position:relative; overflow:hidden; width:100%;
-    aspect-ratio:1; background:var(--bg);
-    box-shadow:inset 0 0 0 1px var(--line), 0 24px 60px -22px rgba(0,0,0,.9);
-  }
-  canvas#c { width:100%; height:100%; display:block; cursor:none; touch-action:none; }
-  #hud {
-    position:absolute; top:11px; left:13px; pointer-events:none;
-    font:10.5px/1 var(--mono); color:var(--dim); letter-spacing:-.01em; min-height:1.5em;
-  }
-
-  /* --- channel filmstrip: live thumbnails under the canvas --- */
-  #chanbar { margin-top:9px; }
-  #chanstrip { display:flex; gap:1px; background:var(--line); border:1px solid var(--line); }
+  #chanbar { flex:1; min-width:0; }
+  #chanstrip { display:flex; gap:1px; background:var(--line); border:1px solid var(--line); height:100%; }
   #chanstrip .cell {
     position:relative; flex:1; min-width:0; display:block;
     padding:5px 5px 4px; background:var(--panel);
@@ -294,71 +240,88 @@
     font-variant-numeric:tabular-nums; transition:color .12s var(--ease);
   }
   .cell:hover .clab, .cell.active .clab { color:var(--ink); }
-
-  #story {
-    display:flex; align-items:baseline; gap:9px;
-    font:15px/1.5 var(--serif); letter-spacing:.005em;
-    color:var(--dim); text-align:left; max-width:640px; min-height:1.5em;
+  #legend {
+    font:italic 11.5px/1.5 var(--serif); color:var(--faint); text-align:center;
+    background:rgba(5,5,6,.6); padding:1px 12px;
+    -webkit-backdrop-filter:blur(6px); backdrop-filter:blur(6px);
   }
-  #story b { color:var(--ink); font-weight:600; }
-  #story::before { content:"\25B8"; font-size:11px; color:var(--faint); flex:none; }
-  #legend { font:italic 12px/1.5 var(--serif); color:var(--faint); text-align:center; margin-top:-8px; }
   #legend .sw {
     display:inline-flex; align-items:center; gap:6px; vertical-align:-1px;
     font:9.5px/1 var(--mono); font-style:normal; color:var(--faint);
   }
   #legend .sw b { width:54px; height:7px; box-shadow:inset 0 0 0 1px var(--line); }
 
-  @media (max-width:1200px) { .keys { display:none; } .exp .edesc { display:none; } }
+  /* ---- corners: shortcuts + attribution ---- */
+  .keys, .credit {
+    bottom:16px; white-space:nowrap;
+    font:11.5px/1.5 var(--serif); color:var(--faint);
+  }
+  .keys { left:26px; cursor:default; }
+  .keys .klist { opacity:0; transition:opacity .15s var(--ease); }
+  .keys:hover .klist { opacity:1; }
+  .credit { font-style:italic; right:26px; text-align:right; }
+  .keys b {
+    font:600 9.5px/1 var(--mono); color:var(--dim); background:var(--well);
+    border:1px solid var(--line); border-bottom-width:2px;
+    padding:2px 4px; margin:0 2px;
+  }
+
+  @media (max-width:1100px) {
+    #masthead { max-width:230px; }
+    #masthead p { display:none; }
+  }
   @media (max-width:900px) {
-    body { flex-direction:column; overflow:auto; height:auto; }
-    #exps { flex-wrap:wrap; }
-    .exp { flex:1 0 33%; padding:9px 10px; border-bottom:1px solid var(--line); }
-    #stage { order:0; min-height:70vh; }
-    #view { padding:16px; }
-    #viewport { width:min(88vw, calc(100vh - 380px)); }
-    #transport { position:static; margin:12px auto 0; }
-    #rail { order:1; width:100%; border-right:none; border-top:1px solid var(--line); }
-    .credit { position:static; text-align:center; white-space:normal; margin-top:4px; }
+    #displayCl, #records, .credit { display:none; }
+    #layoutCap { display:none; }
+    #dock { width:96vw; bottom:20px; }
+    #viewMain .vrow { padding:1px 8px 1px 6px; }
   }
 </style>
 </head>
 <body>
 
-<aside id="rail">
-  <header class="brand">
-    <h1>GRAPH NEURAL <em>CA</em></h1>
-    <p>a living graph &mdash; one learned rule, running in your browser</p>
-    <div id="models">
-      <button data-model="bunny" class="active" title="Stanford bunny surface point cloud">Bunny</button>
-      <!-- more shapes later: train + export_web.py, then add button + script tag -->
-    </div>
-  </header>
+<canvas id="c"></canvas>
 
-  <div class="sect">
-    <h2>Optics</h2>
-    <div id="viewMain"></div>
-    <div id="viewCap"></div>
+<header id="masthead">
+  <h1>GRAPH NEURAL <em>CA</em></h1>
+  <p>a cellular automaton on a graph &mdash; one learned rule, running in your browser</p>
+  <div id="readout">
+    <span><i>step</i><b id="stT">0</b></span>
+    <span><i>alive</i><b id="stA">0%</b></span>
+    <span><i>edges</i><b id="stE">&ndash;</b></span>
+    <span><i>error</i><b id="stL">&ndash;</b><canvas id="spark"></canvas></span>
   </div>
+  <div id="hud"></div>
+</header>
 
-  <div class="sect">
-    <h2>Projection</h2>
-    <div id="layoutMain"></div>
-    <div id="layoutCap"></div>
+<nav id="proj">
+  <div class="ov">Projection</div>
+  <div id="layoutMain"></div>
+  <div id="layoutCap"></div>
+</nav>
+
+<div id="deck">
+  <div id="transport">
+    <button id="pause">Pause</button>
+    <button id="reset">Reseed</button>
+    <button id="killall">Clear</button>
   </div>
+  <label id="deckSpeed"><span id="spdV">~1 step/s</span><input type="range" id="spd" min="0" max="8" value="0"></label>
+</div>
 
-  <div class="sect">
-    <h2>Display</h2>
-    <div class="chips">
-      <label class="chip">Graph edges<input type="checkbox" id="edges" checked></label>
-      <label class="chip">Slow spin<input type="checkbox" id="spin"></label>
-    </div>
-    <div class="ctrl">
-      <label>Brush <span id="brV"></span></label>
-      <input type="range" id="br" min="2" max="40" value="8">
-    </div>
+<aside id="displayCl">
+  <div class="ov">Display</div>
+  <div class="chips">
+    <label class="chip">Graph edges<input type="checkbox" id="edges" checked></label>
+    <label class="chip">Slow spin<input type="checkbox" id="spin"></label>
   </div>
+  <div class="ctrl">
+    <label>Brush <span id="brV"></span></label>
+    <input type="range" id="br" min="2" max="40" value="8">
+  </div>
+</aside>
 
+<aside id="records">
   <details>
     <summary class="h2">Seed node history</summary>
     <canvas id="trace" class="mat"></canvas>
@@ -374,51 +337,28 @@
   </details>
 </aside>
 
-<main id="stage">
-  <header id="topbar">
-    <nav id="exps"></nav>
-  </header>
-
-  <div id="transport">
-    <button id="pause">Pause</button>
-    <button id="reset">Reseed</button>
-    <button id="killall">Clear</button>
-  </div>
-
-  <div id="view">
-    <div id="viewport">
-      <div id="deck">
-        <div id="readout">
-          <span><i>step</i><b id="stT">0</b></span>
-          <span><i>alive</i><b id="stA">0%</b></span>
-          <span><i>edges</i><b id="stE">&ndash;</b></span>
-          <span><i>loss</i><b id="stL">&ndash;</b><canvas id="spark"></canvas></span>
-        </div>
-        <label id="deckSpeed"><span id="spdV">~1 step/s</span><input type="range" id="spd" min="0" max="8" value="0"></label>
-      </div>
-
-      <div id="wrap">
-        <canvas id="c"></canvas>
-        <div id="hud"></div>
-      </div>
-
-      <div id="chanbar">
-        <div id="chanstrip"></div>
-      </div>
+<footer id="dock">
+  <div id="story"></div>
+  <div id="dockrow">
+    <div id="viewMain"></div>
+    <div id="chanbar">
+      <div id="chanstrip"></div>
     </div>
-
-    <div id="story"></div>
-    <div id="legend"></div>
   </div>
+  <div id="legend"></div>
+  <div id="viewCap"></div>
+</footer>
 
-  <div class="keys">
+<div class="keys">
+  <b>?</b>
+  <span class="klist">
     <b>1&ndash;3</b> protocols &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot; <b>k</b> clear &middot;
-    <b>v</b> optics &middot; <b>l</b> projection &middot; <b>&larr;/&rarr;</b> channel &middot; <b>e/E</b> edges
-  </div>
+    <b>v</b> optics &middot; <b>l</b> projection &middot; <b>&larr;/&rarr;</b> channel &middot; <b>e/E</b> edges &middot; <b>scroll</b> zoom
+  </span>
+</div>
 
-  <div class="credit">after <a href="https://distill.pub/2020/growing-ca" target="_blank"
-    rel="noopener">Growing Neural CA</a>, on an irregular graph</div>
-</main>
+<div class="credit">after <a href="https://distill.pub/2020/growing-ca" target="_blank"
+  rel="noopener">Growing Neural CA</a>, on an irregular graph</div>
 
 <script src="bundle_bunny.js"></script>
 <script src="pca.js"></script>

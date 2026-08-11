@@ -21,18 +21,32 @@ const pZ = i => dim > 2 ? pos[i * dim + 2] : 0.5;
 // ---- canvas / sizing ----
 const cv = document.getElementById("c");
 const ctx = cv.getContext("2d");
-let W = 600, DPR = 1;
+let CW = 600, CH = 600, S = 600, OX = 0, OY = 0, DPR = 1;
 
 function resize() {
   DPR = Math.min(window.devicePixelRatio || 1, 2);
-  const s = cv.clientWidth || 600;
-  W = Math.round(s * DPR);
-  cv.width = cv.height = W;
+  CW = Math.round((cv.clientWidth || 600) * DPR);
+  CH = Math.round((cv.clientHeight || 600) * DPR);
+  cv.width = CW; cv.height = CH;
+  // the canvas is full-bleed; the graph lives in a square centered on the
+  // band the floating controls leave free: masthead/transport above, dock below
+  const top = 96 * DPR, bottom = 175 * DPR;
+  const band = Math.max(CH - top - bottom, CH * 0.4);
+  S = Math.min(CW * 0.92, band);
+  OX = (CW - S) / 2;
+  OY = top + (band - S) / 2;
 }
 new ResizeObserver(resize).observe(cv);
 
-const px = p => p * W;
-const py = p => W - p * W;
+// gentle zoom: scroll / pinch, clamped tight on both ends
+let zoom = 1, zoomT = 1;
+cv.addEventListener("wheel", e => {
+  e.preventDefault();
+  zoomT = Math.min(1.6, Math.max(0.7, zoomT * Math.exp(-e.deltaY * 0.0014)));
+}, { passive: false });
+
+const px = p => OX + S * 0.5 + (p - 0.5) * S * zoom;
+const py = p => OY + S * 0.5 + (0.5 - p) * S * zoom;
 function renderEdgeLayer() {}                     // edges are drawn per-frame now
 
 // ---- layouts ----
@@ -270,14 +284,13 @@ function loadBundle(b) {
     space.cap  = dim > 2 ? "The trained 3-d coordinates." : "The trained 2-d coordinates.";
     space.leg  = dim > 2 ? "drag to orbit · click to damage" : "drag to damage";
     if (space.btn) {
+      space.btn.title = space.desc;
       space.btn.querySelector(".vdesc").textContent = space.desc;
     }
   }
   setLayout(layout);  // re-apply caps for current layout
   renderWeights();
   seed();
-  if (typeof setStory === "function")
-    setStory("A living graph: " + N + " cells on a surface. One seed, one rule.");
 }
 
 function seed() {
@@ -350,7 +363,7 @@ function drawRipples(now) {
     ctx.strokeStyle = `rgba(${r.col},${(0.5 * (1 - u)).toFixed(3)})`;
     ctx.lineWidth = 1.5 * DPR;
     ctx.beginPath();
-    ctx.arc(px(r.x), py(r.y), (0.015 + 0.12 * u) * W, 0, 6.2832);
+    ctx.arc(px(r.x), py(r.y), (0.015 + 0.12 * u) * S * zoom, 0, 6.2832);
     ctx.stroke();
   }
 }
@@ -363,7 +376,7 @@ let orbiting = false, moved = false, downPos = null;
 const cl = v => v < 0 ? 0 : v > 1 ? 1 : v;
 
 function draw(now) {
-  ctx.clearRect(0, 0, W, W);
+  ctx.clearRect(0, 0, CW, CH);
   if (showEdges) {
     ctx.lineWidth = Math.max(1, 0.5 * DPR);
     ctx.strokeStyle = "rgba(255,255,255,0.09)";
@@ -585,7 +598,7 @@ function draw(now) {
     ctx.lineWidth = 1.2 * DPR;
     ctx.setLineDash([4 * DPR, 4 * DPR]);
     ctx.beginPath();
-    ctx.arc(px(ptr.x), py(ptr.y), brushR * W, 0, 6.2832);
+    ctx.arc(px(ptr.x), py(ptr.y), brushR * S * zoom, 0, 6.2832);
     ctx.stroke();
     ctx.setLineDash([]);
     ctx.fillStyle = drawing ? "rgba(255,111,145,0.95)" : "rgba(255,255,255,0.7)";
@@ -713,6 +726,7 @@ function loop(now) {
     while (stepAcc >= 1) { step(); stepAcc -= 1; }
   }
   if (!spaceIsFlat() && autoSpin && !orbiting) rotY += 0.0035;
+  zoom += (zoomT - zoom) * 0.18;
   updateLayout();
   draw(now);
   if ((frame++ & 3) === 0) {                    // stats every 4th frame
@@ -738,7 +752,8 @@ function loop(now) {
 // ---- interaction ----
 function canvasPos(ev) {
   const r = cv.getBoundingClientRect();
-  return { x: (ev.clientX - r.left) / r.width, y: 1 - (ev.clientY - r.top) / r.height };
+  return { x: 0.5 + ((ev.clientX - r.left) * DPR - OX - S * 0.5) / (S * zoom),
+           y: 0.5 - ((ev.clientY - r.top) * DPR - OY - S * 0.5) / (S * zoom) };
 }
 function paintDamage(p) {
   const r2 = brushR * brushR;
@@ -851,8 +866,8 @@ sliderFill($("spd")); sliderFill($("br"));
 
 // view picker
 const VIEWS = [
-  { id: "rgb", name: "Pattern", desc: "what the loss sees",
-    cap: "The pattern the loss trains.",
+  { id: "rgb", name: "Pattern", desc: "what the error measures",
+    cap: "The pattern the rule was trained to grow.",
     leg: "drag to damage \u00b7 hover a node to see its neighbors" },
   { id: "act", name: "Activity", desc: "where the rule fires",
     cap: "Bright rose = just updated.",
@@ -876,7 +891,7 @@ CHAN_IDS.forEach(c => VIEWS.push({
 }));
 
 const viewMain = $("viewMain"), viewCap = $("viewCap"),
-      legendEl = $("legend"), viewport = $("viewport"), chanStrip = $("chanstrip");
+      legendEl = $("legend"), chanStrip = $("chanstrip");
 
 const chanLabel = c => c === 3 ? "\u03b1" : String(c);
 const viewOf = id => VIEWS.find(v => v.id === id);
@@ -916,10 +931,11 @@ function paintThumbs() {
   }
 }
 
-// rail: three named views plus one row that hands the choice to the canvas
+// optics: three named views plus one row that hands the choice to the canvas
 VIEWS.filter(v => !v.chan).forEach(v => {
   const b = document.createElement("button");
   b.className = "vrow";
+  b.title = v.desc;
   const n = document.createElement("span"); n.className = "vname"; n.textContent = v.name;
   const d = document.createElement("span"); d.className = "vdesc"; d.textContent = v.desc;
   b.append(n, d);
@@ -948,7 +964,7 @@ function setView(id, preview) {
   if (!preview) { lockedView = id; if (typeof id === "number") lastChan = id; }
   const v = viewOf(id);
   // highlight follows the *locked* view, so skimming the filmstrip doesn't
-  // make the rail flicker; the caption follows the preview.
+  // make the list flicker; the caption follows the preview.
   VIEWS.forEach(w => {
     if (w.btn) w.btn.classList.toggle("active", w.id === lockedView);
     if (w.bar) w.bar.classList.toggle("active", w.id === lockedView);
@@ -980,7 +996,7 @@ const LAYOUTS = [
     cap: "The wiring\u2019s own shape.",
     leg: "drag to orbit \u00b7 click to damage" },
   { id: "state", name: "State", desc: "cluster by hidden state",
-    cap: "Clustered by what they think.",
+    cap: "Cells with similar hidden states sit together.",
     leg: "drag to orbit \u00b7 click to damage" },
 ];
 if (typeof UMAPQ !== "undefined")
@@ -991,6 +1007,7 @@ const layoutMain = $("layoutMain"), layoutCap = $("layoutCap");
 LAYOUTS.forEach(l => {
   const b = document.createElement("button");
   b.className = "vrow";
+  b.title = l.desc;
   const n = document.createElement("span"); n.className = "vname"; n.textContent = l.name;
   const d = document.createElement("span"); d.className = "vdesc"; d.textContent = l.desc;
   b.append(n, d);
@@ -1013,7 +1030,7 @@ function updateLegend() {
     `<i class="sw"><b style="background:linear-gradient(90deg,${stops})"></b>${lab}</i>`;
   const parts = [];
   if (view === "rgb") {
-    parts.push("colors are the pattern the loss trains",
+    parts.push("colors are the pattern the rule was trained to grow",
                sw("#000,#fff", "dim \u2192 alive"));
   } else if (view === "act") {
     parts.push(sw("rgb(60,50,140),rgb(255,140,175)", "idle \u2192 firing"),
@@ -1054,59 +1071,39 @@ function woundRandom() {
 }
 
 const EXPERIMENTS = [
-  { num: "01", name: "Birth", desc: "one cell becomes a pattern",
-    story: "One seed, one shared rule. No blueprint \u2014 it builds itself.",
+  { num: "01", name: "Grow", desc: "one seed cell grows the pattern",
+    story: "One seed cell, one shared rule. Each cell sees only its neighbors.",
     run() { setLayout("space"); setView("rgb"); restoreEdges(); seed(); setRunning(true); } },
-  { num: "02", name: "Injury", desc: "tear a hole, watch it heal",
-    story: "A wound. The dark embers are cells rebuilding \u2014 tear your own.",
+  { num: "02", name: "Wound", desc: "tear a hole, watch it heal",
+    story: () => "The bright cells are the rule firing, rebuilding the hole \u2014 " +
+                 (spaceIsFlat() ? "drag" : "click") + " to tear your own.",
     run() {
       setLayout("space"); setView("act"); setRunning(true);
       if (alivePct() < 10) { seed(); pendingWound = 1; }
       else woundRandom();
     } },
-  { num: "03", name: "Apocalypse", desc: "kill every cell at once",
-    story: "All dead, and it stays dead. Life needs a living neighbor.",
+  { num: "03", name: "Kill", desc: "kill every cell at once",
+    story: "Everything dead \u2014 and it stays dead. A cell only wakes if it or a neighbor is alive.",
     run() { setLayout("space"); setView("rgb"); x.fill(0); setRunning(true); } },
 ];
 
-const expsEl = $("exps");
-EXPERIMENTS.forEach((ex, k) => {
-  const b = document.createElement("button");
-  b.className = "exp";
-  b.title = ex.desc;
-  const n = document.createElement("span"); n.className = "enum"; n.textContent = ex.num;
-  const t1 = document.createElement("span"); t1.className = "ename"; t1.textContent = ex.name;
-  const t2 = document.createElement("span"); t2.className = "edesc"; t2.textContent = ex.desc;
-  b.append(n, t1, t2);
-  b.onclick = () => runExperiment(k);
-  ex.btn = b;
-  expsEl.appendChild(b);
-});
+// no buttons — the protocols run from the keyboard (1–3)
 function runExperiment(k) {
   const ex = EXPERIMENTS[k];
-  EXPERIMENTS.forEach(e => e.btn.classList.toggle("active", e === ex));
-  ex.run();
-  setStory(ex.story);
+  ex.run();                                   // run first: it may change the layout
+  setStory(typeof ex.story === "function" ? ex.story() : ex.story);
 }
-setStory("A living graph: one seed grows a surface. Poke it.");
+// on a 3-d model a drag orbits; only a click wounds
+const defaultStory = () => "One seed grows the pattern. " +
+  (spaceIsFlat() ? "Drag on it to wound it." : "Click it to wound it.");
 
 // re-render charts when an analysis section is opened (canvases have no
 // layout size while the <details> is closed)
 document.querySelectorAll("details").forEach(d =>
   d.addEventListener("toggle", () => { renderWeights(); drawTrace(); }));
 
-// model picker — surface clouds for now (bunny). Add more after train+export.
+// one specimen for now. More shapes: train + export_web.py, then add a script tag.
 const MODELS = { bunny: BUNDLE_BUNNY };
-document.querySelectorAll("#models button").forEach(btn => {
-  const id = btn.dataset.model;
-  if (id && !MODELS[id]) btn.hidden = true;
-  btn.onclick = () => {
-    if (!MODELS[btn.dataset.model]) return;
-    document.querySelectorAll("#models button").forEach(b => b.classList.remove("active"));
-    btn.classList.add("active");
-    loadBundle(MODELS[btn.dataset.model]);
-  };
-});
 
 // edge cutting
 function cutRandom(frac) {
@@ -1147,4 +1144,5 @@ window.addEventListener("keydown", e => {
 // ---- init ----
 resize();
 loadBundle(MODELS.bunny);
+setStory(defaultStory());
 requestAnimationFrame(loop);
