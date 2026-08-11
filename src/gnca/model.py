@@ -1,5 +1,6 @@
 """The update rule: one shared MLP applied to every node, Distill-NCA style."""
 import torch
+import torch.nn.functional as F
 from torch import nn
 
 
@@ -30,19 +31,30 @@ class GraphNCA(nn.Module):
         nn.init.zeros_(self.gate.weight)
         nn.init.zeros_(self.gate.bias)
 
-    def forward(self, x, edge_index, update_rate=0.5):
-        """x: (B*N, C) node states for a batch of B copies of the graph."""
+    def forward(self, x, edge_index, update_rate=0.5, deg=None):
+        """x: (B*N, C) node states for a batch of B copies of the graph.
+
+        deg: optional precomputed (B*N, 1) in-degree. The graph never changes
+        during a run, so the training loop computes it once and passes it in;
+        computed here when not given."""
         src, dst = edge_index[0], edge_index[1]
         n = x.shape[0]
-        mean_n = torch.zeros_like(x).index_add_(0, dst, x[src])
-        deg = torch.zeros(n, 1, device=x.device, dtype=x.dtype)
-        deg.index_add_(0, dst, torch.ones(src.shape[0], 1, device=x.device, dtype=x.dtype))
-        mean_n = mean_n / deg.clamp(min=1)
-        mean_diff = torch.zeros_like(x).index_add_(0, dst, x[src] - x[dst]) / deg.clamp(min=1)
+        if deg is None:
+            deg = torch.zeros(n, 1, device=x.device, dtype=x.dtype)
+            ones = torch.ones(src.shape[0], 1, device=x.device, dtype=x.dtype)
+            deg.index_add_(0, dst, ones)
+        inv_deg = 1.0 / deg.clamp(min=1)
+        mean_n = torch.zeros_like(x).index_add_(0, dst, x[src]) * inv_deg
 
-        feat = torch.cat([x[src], x[dst], (x[src] - x[dst]).abs()], dim=-1)
-        g = 2 * torch.sigmoid(self.gate(feat))          # (E, C); == 1 at init
-        mean_diff = torch.zeros_like(x).index_add_(0, dst, g * (x[src] - x[dst])) / deg.clamp(min=1)
+        # The gate is linear in [x_src, x_dst, |x_src - x_dst|], so the two
+        # endpoint terms are computed once on N nodes and gathered per edge,
+        # instead of one (E, 3C) matmul over edges (the #18 slowdown).
+        d = x[src] - x[dst]
+        w1, w2, w3 = self.gate.weight.split(self.channels, dim=1)
+        a = F.linear(x, torch.cat([w1, w2], dim=0))          # (N, 2C)
+        g = 2 * torch.sigmoid(a[:, :self.channels][src] + a[:, self.channels:][dst]
+                              + F.linear(d.abs(), w3, self.gate.bias))
+        mean_diff = torch.zeros_like(x).index_add_(0, dst, g * d) * inv_deg
 
         # log1p(deg) LAST: neighbor count (issue #17). Appended last so
         # warm-start zero-padding of the first layer stays a column pad.

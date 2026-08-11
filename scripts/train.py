@@ -126,6 +126,13 @@ if not args.animate:
     bedges = (edges[None] + offsets[..., None]).permute(1, 0, 2).reshape(2, -1).to(device)
     edges = edges.to(device)
 
+    # in-degrees are graph-fixed; precompute once, pass to every model call
+    def make_deg(e, n):
+        d = torch.zeros(n, 1, device=device)
+        d.index_add_(0, e[1], torch.ones(e.shape[1], 1, device=device))
+        return d
+    deg, bdeg = make_deg(edges, N), make_deg(bedges, args.batch * N)
+
     model = GraphNCA(channels=args.channels).to(device)
     if args.init_from:
         sd = torch.load(args.init_from, weights_only=False)["model"]
@@ -144,12 +151,17 @@ if not args.animate:
         """Wipe all channels of some nodes in the last n samples of the batch.
 
         One sample gets scattered damage, the rest get balls covering 20-50% of
-        the pattern.
+        the pattern. One flat (row, col) index so each step pays a single
+        host->device transfer instead of n small ones.
         """
-        for i in range(1, n + 1):
-            nodes = (dmg.ball(pos, pattern, frac=rng.uniform(0.2, 0.5), rng=rng)
-                     if i > 1 else dmg.scatter(pattern, rng=rng))
-            xb[-i, torch.from_numpy(nodes).to(device)] = 0.0
+        hits = [dmg.scatter(pattern, rng=rng)]
+        hits += [dmg.ball(pos, pattern, frac=rng.uniform(0.2, 0.5), rng=rng)
+                 for _ in range(n - 1)]
+        rows = torch.arange(xb.shape[0] - 1, xb.shape[0] - n - 1, -1, device=device)
+        counts = torch.tensor([len(h) for h in hits], device=device)
+        rows = rows.repeat_interleave(counts)
+        cols = torch.from_numpy(np.concatenate(hits).astype(np.int64)).to(device)
+        xb[rows, cols] = 0.0
 
     PROBE_BALL = None  # fixed blob, so the probe is comparable across steps and runs
 
@@ -172,30 +184,32 @@ if not args.animate:
             x = seed_state(1, N, args.channels, device, center)[0]
             energy = {}
             for t in range(1, grow + 1):
-                x = model(x, edges) * alive_mask(x, edges, N)
+                x = model(x, edges, deg=deg) * alive_mask(x, edges, N)
                 if t in (10, 20, 40, 80):
                     energy[f"dirich_t{t}"] = edge_energy(x)
             grown = ((x[:, :4] - target) ** 2).mean().item()
             x[PROBE_BALL] = 0.0
             for _ in range(heal):
-                x = model(x, edges) * alive_mask(x, edges, N)
+                x = model(x, edges, deg=deg) * alive_mask(x, edges, N)
             healed = ((x[:, :4] - target) ** 2).mean().item()
             energy["dirich_healed"] = edge_energy(x)
             return grown, healed, energy
 
     def run_ca(x0, n_steps):
         """Roll out the CA, with pre-step alive masking like the growing NCA."""
+        batched = x0.shape[0] == args.batch * N
+        e, dg = (bedges, bdeg) if batched else (edges, deg)
         x = x0
         for _ in range(n_steps):
-            m = alive_mask(x, bedges if x.shape[0] == args.batch * N else edges, N)
-            x = model(x, bedges if x.shape[0] == args.batch * N else edges)
+            m = alive_mask(x, e, N)
+            x = model(x, e, deg=dg)
             x = x * m
         return x
 
     # ------------------------------------------------------------ train ----
     last_t = [time.time()]
     for step in range(1, args.steps + 1):
-        idx = torch.randint(0, args.pool, (args.batch,))
+        idx = torch.randint(0, args.pool, (args.batch,), device=device)
         xb = pool[idx].clone()                               # (B, N, C)
 
         # rank the batch worst-first, so xb[0] is the least-formed pattern and
@@ -205,7 +219,7 @@ if not args.animate:
         with torch.no_grad():
             start_loss = ((xb[..., :4] - target) ** 2).mean((1, 2))
         order = start_loss.argsort(descending=True)
-        xb, idx = xb[order], idx[order.cpu()]                # idx lives on cpu
+        xb, idx = xb[order], idx[order]
 
         if step % 8 == 0:  # periodically train from the bare seed (long horizons)
             xb[0] = seed_state(1, N, args.channels, device, center)[0]
