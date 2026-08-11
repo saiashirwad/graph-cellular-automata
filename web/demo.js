@@ -280,9 +280,9 @@ function loadBundle(b) {
   // refresh layout captions that mention "2-d" / "3-d"
   const space = LAYOUTS.find(l => l.id === "space");
   if (space) {
-    space.desc = dim > 2 ? "trained 3-d positions" : "trained 2-d positions";
-    space.cap  = dim > 2 ? "The trained 3-d coordinates." : "The trained 2-d coordinates.";
-    space.leg  = dim > 2 ? "drag to orbit · click to damage" : "drag to damage";
+    space.desc = dim > 2 ? "the real shape, 3-d" : "the real shape, 2-d";
+    space.cap  = "Each node at its real position in the shape.";
+    space.leg  = dim > 2 ? "drag to orbit · click to tear" : "drag to tear";
     if (space.btn) {
       space.btn.title = space.desc;
       space.btn.querySelector(".vdesc").textContent = space.desc;
@@ -589,7 +589,7 @@ function draw(now) {
     ? "node " + hovered + " · deg " + (off[hovered+1] - off[hovered]) +
       " · α " + x[hovered * C + AIDX].toFixed(2)
     : typeof view === "number"
-      ? (view === 3 ? "α · aliveness" : "channel " + view + " · self-invented")
+      ? (view === 3 ? "α · aliveness" : "channel " + view + " · meaning learned in training")
       : "";
 
   // brush cursor
@@ -866,27 +866,27 @@ sliderFill($("spd")); sliderFill($("br"));
 
 // view picker
 const VIEWS = [
-  { id: "rgb", name: "Pattern", desc: "what the error measures",
+  { id: "rgb", name: "Pattern", desc: "the colors it grows",
     cap: "The pattern the rule was trained to grow.",
-    leg: "drag to damage \u00b7 hover a node to see its neighbors" },
+    leg: "drag to tear \u00b7 hover a node to see its neighbors" },
   { id: "act", name: "Activity", desc: "where the rule fires",
-    cap: "Bright rose = just updated.",
-    leg: "bright rose = just updated" },
-  { id: "pca", name: "Morphogens", desc: "hidden state \u2192 color",
+    cap: "Bright = the rule just fired there.",
+    leg: "bright = the rule just fired there" },
+  { id: "pca", name: "Hidden state", desc: "all 16 channels, squeezed into color",
     cap: "Hidden state, compressed to color.",
     leg: "similar color = similar hidden state" },
 ];
 if (typeof UMAPQ !== "undefined")
   VIEWS.splice(3, 0, { id: "umap", name: "Cell types",
-    desc: "learned state \u2192 color",
+    desc: "cells grouped into discrete types",
     cap: "Same color = same learned cell type.",
-    leg: "UMAP of hidden states, quantized" });
+    leg: "same color = same learned cell type" });
 const CHAN_IDS = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
 CHAN_IDS.forEach(c => VIEWS.push({
   id: c, chan: true,
   cap: c === 3
     ? "\u03b1 \u2014 the aliveness channel."
-    : `Hidden channel ${c} \u2014 self-invented.`,
+    : `Channel ${c} \u2014 the rule invented its meaning during training.`,
   leg: "rose = positive \u00b7 cyan = negative",
 }));
 
@@ -989,19 +989,19 @@ function cycleMode() {
 
 // layout picker
 const LAYOUTS = [
-  { id: "space", name: "Space", desc: "trained positions",
-    cap: "The trained coordinates.",
-    leg: "drag to damage" },
-  { id: "shape", name: "Shape", desc: "topology only, 3-d",
-    cap: "The wiring\u2019s own shape.",
-    leg: "drag to orbit \u00b7 click to damage" },
+  { id: "space", name: "Space", desc: "the real shape",
+    cap: "Each node at its real position in the shape.",
+    leg: "drag to tear" },
+  { id: "shape", name: "Shape", desc: "from connections alone",
+    cap: "Laid out from connections alone \u2014 no coordinates given.",
+    leg: "drag to orbit \u00b7 click to tear" },
   { id: "state", name: "State", desc: "cluster by hidden state",
     cap: "Cells with similar hidden states sit together.",
-    leg: "drag to orbit \u00b7 click to damage" },
+    leg: "drag to orbit \u00b7 click to tear" },
 ];
 if (typeof UMAPQ !== "undefined")
-  LAYOUTS.push({ id: "map", name: "Map", desc: "the learned state map",
-    cap: "The UMAP map: position \u2248 cell type.",
+  LAYOUTS.push({ id: "map", name: "Map", desc: "cluster by cell type",
+    cap: "Cells with the same learned role land in the same place.",
     leg: "faint dots = states seen in the training rollout" });
 const layoutMain = $("layoutMain"), layoutCap = $("layoutCap");
 LAYOUTS.forEach(l => {
@@ -1031,7 +1031,7 @@ function updateLegend() {
   const parts = [];
   if (view === "rgb") {
     parts.push("colors are the pattern the rule was trained to grow",
-               sw("#000,#fff", "dim \u2192 alive"));
+               sw("#000,#fff", "dead \u2192 alive"));
   } else if (view === "act") {
     parts.push(sw("rgb(60,50,140),rgb(255,140,175)", "idle \u2192 firing"),
                "where the rule is working");
@@ -1041,7 +1041,7 @@ function updateLegend() {
     parts.push("same color = same learned cell type");    // UMAP palette, quantized
   } else {
     parts.push(sw("rgb(90,209,232),#0a0a0b,rgb(255,111,145)", "\u2212 \u2192 +"),
-               view === 3 ? "\u03b1 \u2014 aliveness" : "channel " + view + " \u2014 self-invented");
+               view === 3 ? "\u03b1 \u2014 aliveness" : "channel " + view + " \u2014 meaning learned in training");
   }
   parts.push(l.leg, "hover a node to see its neighbors");
   legendEl.innerHTML = parts.join(" \u00b7 ");
@@ -1074,7 +1074,7 @@ const EXPERIMENTS = [
   { num: "01", name: "Grow", desc: "one seed cell grows the pattern",
     story: "One seed cell, one shared rule. Each cell sees only its neighbors.",
     run() { setLayout("space"); setView("rgb"); restoreEdges(); seed(); setRunning(true); } },
-  { num: "02", name: "Wound", desc: "tear a hole, watch it heal",
+  { num: "02", name: "Tear", desc: "tear a hole, watch it heal",
     story: () => "The bright cells are the rule firing, rebuilding the hole \u2014 " +
                  (spaceIsFlat() ? "drag" : "click") + " to tear your own.",
     run() {
@@ -1094,8 +1094,9 @@ function runExperiment(k) {
   setStory(typeof ex.story === "function" ? ex.story() : ex.story);
 }
 // on a 3-d model a drag orbits; only a click wounds
-const defaultStory = () => "One seed grows the pattern. " +
-  (spaceIsFlat() ? "Drag on it to wound it." : "Click it to wound it.");
+const defaultStory = () => "The whole shape grew from one cell. " +
+  (spaceIsFlat() ? "Drag anywhere to tear a hole — then watch it heal."
+                 : "Click anywhere to tear a hole — then watch it heal.");
 
 // re-render charts when an analysis section is opened (canvases have no
 // layout size while the <details> is closed)

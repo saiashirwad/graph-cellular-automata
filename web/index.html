@@ -285,7 +285,7 @@
 
 <header id="masthead">
   <h1>GRAPH NEURAL <em>CA</em></h1>
-  <p>a cellular automaton on a graph &mdash; one learned rule, running in your browser</p>
+  <p>every cell runs the same small learned rule &mdash; together they grow the shape, and heal it when you tear it</p>
   <div id="readout">
     <span><i>step</i><b id="stT">0</b></span>
     <span><i>alive</i><b id="stA">0%</b></span>
@@ -296,7 +296,7 @@
 </header>
 
 <nav id="proj">
-  <div class="ov">Projection</div>
+  <div class="ov">Layout</div>
   <div id="layoutMain"></div>
   <div id="layoutCap"></div>
 </nav>
@@ -305,7 +305,7 @@
   <div id="transport">
     <button id="pause">Pause</button>
     <button id="reset">Reseed</button>
-    <button id="killall">Clear</button>
+    <button id="killall">Kill all</button>
   </div>
   <label id="deckSpeed"><span id="spdV">~1 step/s</span><input type="range" id="spd" min="0" max="8" value="0"></label>
 </div>
@@ -324,7 +324,7 @@
 
 <aside id="records">
   <details>
-    <summary class="h2">Seed node history</summary>
+    <summary class="h2">Inside the seed cell</summary>
     <canvas id="trace" class="mat"></canvas>
     <p class="wcap">the seed&rsquo;s 16 channels over time &mdash; rose positive, cyan negative</p>
   </details>
@@ -334,7 +334,7 @@
     <canvas id="w1" class="mat"></canvas>
     <p class="wcap">W&#8321; &mdash; what each hidden unit reads (self / neighbors / difference)</p>
     <canvas id="w2" class="mat"></canvas>
-    <p class="wcap">W&#8322; &mdash; what it writes back to the 16 channels</p>
+    <p class="wcap">W&#8322; &mdash; what each hidden unit writes back to the 16 channels</p>
   </details>
 </aside>
 
@@ -353,8 +353,8 @@
 <div class="keys">
   <b>?</b>
   <span class="klist">
-    <b>1&ndash;3</b> protocols &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot; <b>k</b> clear &middot;
-    <b>v</b> optics &middot; <b>l</b> projection &middot; <b>&larr;/&rarr;</b> channel &middot; <b>e/E</b> edges &middot; <b>scroll</b> zoom
+    <b>1&ndash;3</b> experiments &middot; <b>space</b> pause &middot; <b>r</b> reseed &middot; <b>k</b> kill all &middot;
+    <b>v</b> view &middot; <b>l</b> layout &middot; <b>&larr;/&rarr;</b> channel &middot; <b>e/E</b> edges &middot; <b>scroll</b> zoom
   </span>
 </div>
 
